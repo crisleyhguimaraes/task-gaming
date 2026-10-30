@@ -3,7 +3,7 @@ import { and, asc, eq, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { teams, users } from '#/db/schema'
-import { authMiddleware, requireRole } from './auth-context'
+import { authMiddleware, requireCan } from './auth-context'
 import type { AuthCtx } from './roles'
 import { isAdmin } from './roles'
 import { createUserFor, updateUserCore } from './users.core'
@@ -16,7 +16,7 @@ const scope = (me: AuthCtx) =>
 export const listUsers = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
+    requireCan(me, 'user.read')
     const list = await db
       .select({ id: users.id, name: users.name, email: users.email, role: users.role, teamId: users.teamId, teamName: teams.name })
       .from(users)
@@ -39,7 +39,7 @@ export const createUser = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data, context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
+    requireCan(me, 'user.create')
     await createUserFor(me, data)
   })
 
@@ -47,7 +47,7 @@ export const updateUser = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ userId: z.string(), teamId: z.uuid().nullable(), role: assignableRoles }))
   .handler(({ data, context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN')
+    requireCan(me, 'user.update')
     return updateUserCore(me, data)
   })
 

@@ -3,13 +3,13 @@ import { asc, count, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { teams, tenants, users } from '#/db/schema'
-import { authMiddleware, requireRole } from './auth-context'
+import { authMiddleware, requireCan } from './auth-context'
 import { createTenantAdminFor, createTenantFor } from './tenants.core'
 
 export const listTenants = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    requireRole(context.auth, 'SUPER_ADMIN')
+    requireCan(context.auth, 'tenant.manage')
     return db
       .select({
         id: tenants.id,
@@ -34,7 +34,7 @@ export const createTenant = createServerFn({ method: 'POST' })
     }),
   )
   .handler(({ data, context }) => {
-    requireRole(context.auth, 'SUPER_ADMIN')
+    requireCan(context.auth, 'tenant.manage')
     return createTenantFor(context.auth, data)
   })
 
@@ -42,7 +42,7 @@ export const getTenant = createServerFn()
   .middleware([authMiddleware])
   .validator(z.object({ tenantId: z.uuid() }))
   .handler(async ({ data, context }) => {
-    requireRole(context.auth, 'SUPER_ADMIN')
+    requireCan(context.auth, 'tenant.manage')
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, data.tenantId))
     if (!tenant) throw new Error('Tenant não encontrado')
     const members = await db
@@ -65,6 +65,6 @@ export const createTenantAdmin = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data, context }) => {
-    requireRole(context.auth, 'SUPER_ADMIN')
+    requireCan(context.auth, 'tenant.manage')
     await createTenantAdminFor(context.auth, data)
   })

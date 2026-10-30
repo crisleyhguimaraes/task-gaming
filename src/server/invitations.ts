@@ -3,13 +3,13 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { invitations, teams } from '#/db/schema'
-import { authMiddleware, requireRole } from './auth-context'
+import { authMiddleware, requireCan } from './auth-context'
 import { acceptInvitationCore, cancelInvitationFor, createInvitationCore, invitationScope, resendInvitationFor, validInvitation } from './invitations.core'
 
 export const listInvitations = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
+    requireCan(me, 'invitation.manage')
     return db
       .select({ id: invitations.id, email: invitations.email, role: invitations.role, teamName: teams.name, expiresAt: invitations.expiresAt, createdAt: invitations.createdAt })
       .from(invitations)
@@ -22,7 +22,7 @@ export const createInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ email: z.email(), teamId: z.uuid().nullable(), role: z.enum(['TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER']) }))
   .handler(async ({ data, context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
+    requireCan(me, 'invitation.manage')
     await createInvitationCore(me, data)
   })
 
@@ -30,7 +30,7 @@ export const resendInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ invitationId: z.uuid() }))
   .handler(({ data, context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
+    requireCan(me, 'invitation.manage')
     return resendInvitationFor(me, data.invitationId)
   })
 
@@ -38,7 +38,7 @@ export const cancelInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ invitationId: z.uuid() }))
   .handler(({ data, context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
+    requireCan(me, 'invitation.manage')
     return cancelInvitationFor(me, data.invitationId)
   })
 

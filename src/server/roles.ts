@@ -15,8 +15,40 @@ export function fail(message: string): never {
   throw new Error(message)
 }
 
-export function requireRole(ctx: AuthCtx, ...roles: Array<Role>) {
-  if (!roles.includes(ctx.role)) fail('Sem permissão')
+const MANAGERS: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER']
+const ADMINS: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN']
+const EVERYONE: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER']
+
+/** Padrão de fábrica. Escopo (tenant/equipe) continua em canManage/canSee; isto só diz "quem pode tentar". */
+export const defaultGrants = {
+  'tenant.manage': ['SUPER_ADMIN'],
+  'tenant.configure': ADMINS,
+  'team.manage': ADMINS,
+  'user.read': MANAGERS,
+  'user.create': MANAGERS,
+  'user.update': ADMINS,
+  'user.deactivate': ADMINS,
+  'invitation.manage': MANAGERS,
+  'permissions.manage': ADMINS,
+  'audit.read': ADMINS,
+  'task.restore': MANAGERS,
+  'export.csv': MANAGERS,
+  'pipeline.configure': ADMINS,
+  'lead.write': EVERYONE,
+  'lead.import': MANAGERS,
+  'opportunity.write': EVERYONE,
+  'opportunity.reopen': MANAGERS,
+} satisfies Record<string, ReadonlyArray<Role>>
+
+export type Capability = keyof typeof defaultGrants
+export const capabilities = Object.keys(defaultGrants) as Array<Capability>
+
+const grantedTo = (capability: Capability): ReadonlyArray<Role> => defaultGrants[capability]
+
+export const can = (ctx: Pick<AuthCtx, 'role'>, capability: Capability) => grantedTo(capability).includes(ctx.role)
+
+export function requireCan(ctx: Pick<AuthCtx, 'role'>, capability: Capability) {
+  if (!can(ctx, capability)) fail('Sem permissão')
 }
 
 export const isAdmin = (me: AuthCtx) => me.role === 'SUPER_ADMIN' || me.role === 'TENANT_ADMIN'

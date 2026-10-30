@@ -2,7 +2,7 @@ import { redirect } from '@tanstack/react-router'
 import { createMiddleware } from '@tanstack/react-start'
 
 export type { AuthCtx } from './roles'
-export { isAdmin, requireRole } from './roles'
+export { can, isAdmin, requireCan } from './roles'
 
 /** Injeta `context.auth` nas server functions. O import server-only fica dentro do .server() (removido do cliente). */
 export const authMiddleware = createMiddleware({ type: 'function' }).server(async ({ next }) => {

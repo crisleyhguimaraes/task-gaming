@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { auditActions } from '#/lib/audit'
 import { listAuditEventsFor, taskHistoryFor } from './audit.core'
-import { authMiddleware, requireRole } from './auth-context'
+import { authMiddleware, requireCan } from './auth-context'
 
 export const listAuditEvents = createServerFn()
   .middleware([authMiddleware])
@@ -19,7 +19,7 @@ export const listAuditEvents = createServerFn()
     }),
   )
   .handler(({ data, context: { auth: me } }) => {
-    requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN')
+    requireCan(me, 'audit.read')
     return listAuditEventsFor(me, { ...data, from: data.from ? new Date(data.from) : undefined, to: data.to ? new Date(data.to) : undefined })
   })
 
