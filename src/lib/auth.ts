@@ -16,9 +16,9 @@ export const auth = betterAuth({
   session: { expiresIn: 60 * 60 * 10, updateAge: 60 * 60 },
   user: {
     additionalFields: {
-      tenantId: { type: 'string', required: true },
-      teamId: { type: 'string', required: false },
-      mustChangePassword: { type: 'boolean', required: false },
+      tenantId: { type: 'string', required: true, input: false },
+      teamId: { type: 'string', required: false, input: false },
+      mustChangePassword: { type: 'boolean', required: false, input: false },
     },
   },
   databaseHooks: {

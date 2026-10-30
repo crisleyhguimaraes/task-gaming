@@ -3,6 +3,12 @@ import { db } from '#/db'
 import { teams, tenants, users } from '#/db/schema'
 import type { AuthCtx } from './roles'
 
+export async function addAdmin(f: { tenant: { id: string; slug: string }; team: { id: string } }): Promise<AuthCtx> {
+  const id = `adm-${f.tenant.slug}`
+  await db.insert(users).values({ id, name: 'Admin', email: `${id}@test.local`, role: 'TENANT_ADMIN', tenantId: f.tenant.id, teamId: f.team.id })
+  return { userId: id, tenantId: f.tenant.id, teamId: f.team.id, role: 'TENANT_ADMIN', name: 'Admin', impersonatedBy: null, mustChangePassword: false }
+}
+
 /** Tenant descartável com 1 time, 1 líder e N membros. Tudo cai em cascata no cleanup. */
 export async function makeTenant(members = 2) {
   const suffix = Math.random().toString(36).slice(2, 8)

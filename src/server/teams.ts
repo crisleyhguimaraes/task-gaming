@@ -32,7 +32,7 @@ export const deleteTeam = createServerFn({ method: 'POST' })
   .validator(z.object({ teamId: z.uuid() }))
   .handler(async ({ data, context: { auth: me } }) => {
     requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN')
-    const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(tasks).where(eq(tasks.teamId, data.teamId))
+    const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(tasks).where(and(eq(tasks.teamId, data.teamId), eq(tasks.tenantId, me.tenantId)))
     if (n > 0) throw new Error('Equipe tem tarefas; não pode ser excluída')
     await db.delete(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
   })

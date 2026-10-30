@@ -1,8 +1,38 @@
-import { eq } from 'drizzle-orm'
+import { randomBytes } from 'node:crypto'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '#/db'
-import { invitations, teams, tenants } from '#/db/schema'
+import type { Role } from '#/db/schema'
+import { invitations, teams, tenants, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { sendMail } from './mail'
+import type { AuthCtx } from './roles'
+import { fail } from './roles'
+import { assertTeamInTenant } from './teams.core'
+
+export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
+
+export async function createInvitationCore(me: AuthCtx, data: { email: string; teamId: string | null; role: Exclude<Role, 'SUPER_ADMIN'> }) {
+  if (me.role === 'TEAM_LEADER' && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) fail('Líder só convida membros da própria equipe')
+  await assertTeamInTenant(db, me.tenantId, data.teamId)
+  const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email))
+  if (exists) fail('Este email já tem conta')
+  // reenvio: substitui convite pendente do mesmo email
+  await db.delete(invitations).where(and(eq(invitations.tenantId, me.tenantId), eq(invitations.email, data.email), isNull(invitations.acceptedAt)))
+  const [inv] = await db
+    .insert(invitations)
+    .values({
+      tenantId: me.tenantId,
+      teamId: data.teamId,
+      email: data.email,
+      role: data.role,
+      token: randomBytes(32).toString('hex'),
+      invitedById: me.userId,
+      expiresAt: new Date(Date.now() + SEVEN_DAYS),
+    })
+    .returning()
+  await sendInvitation(inv!)
+  return inv!
+}
 
 export async function sendInvitation(inv: typeof invitations.$inferSelect) {
   const [tenant] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, inv.tenantId))

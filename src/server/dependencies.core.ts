@@ -1,6 +1,8 @@
-import { and, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '#/db'
 import { taskDependencies, tasks } from '#/db/schema'
+import type { AuthCtx } from './roles'
+import { canManage, canSee, fail } from './roles'
 
 /** true se, seguindo "depends_on" a partir de `from`, chegamos em `target`. */
 export function reaches(edges: Array<{ taskId: string; dependsOnTaskId: string }>, from: string, target: string) {
@@ -30,3 +32,43 @@ export async function blockedSet(taskIds: Array<string>) {
 }
 
 export const isBlocked = async (taskId: string) => (await blockedSet([taskId])).has(taskId)
+
+export async function addDependencyFor(me: AuthCtx, data: { taskId: string; dependsOnTaskId: string }) {
+  if (data.taskId === data.dependsOnTaskId) fail('Uma tarefa não depende de si mesma')
+  const both = await db
+    .select({ id: tasks.id, teamId: tasks.teamId })
+    .from(tasks)
+    .where(and(eq(tasks.tenantId, me.tenantId), inArray(tasks.id, [data.taskId, data.dependsOnTaskId])))
+  if (both.length !== 2) fail('Tarefa não encontrada')
+  const [task, dependsOn] = [data.taskId, data.dependsOnTaskId].map((id) => both.find((t) => t.id === id)!)
+  if (!canManage(me, task!)) fail('Sem permissão')
+  if (task!.teamId !== dependsOn!.teamId) fail('Dependência só entre tarefas da mesma equipe')
+  // NOTE: arestas do tenant em memória; CTE recursiva se crescer
+  const edges = await db
+    .select({ taskId: taskDependencies.taskId, dependsOnTaskId: taskDependencies.dependsOnTaskId })
+    .from(taskDependencies)
+    .where(eq(taskDependencies.tenantId, me.tenantId))
+  if (reaches(edges, data.dependsOnTaskId, data.taskId)) fail('Dependência circular')
+  await db.insert(taskDependencies).values({ tenantId: me.tenantId, ...data }).onConflictDoNothing()
+}
+
+/** Dependências de uma tarefa + candidatas do mesmo time (para o editor). */
+export async function getDependenciesFor(me: AuthCtx, taskId: string) {
+  const [task] = await db
+    .select({ teamId: tasks.teamId, assignedToId: tasks.assignedToId })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId)))
+  if (!task || !canSee(me, task)) fail('Tarefa não encontrada')
+  const deps = await db
+    .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+    .from(taskDependencies)
+    .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
+    .where(eq(taskDependencies.taskId, taskId))
+    .orderBy(asc(tasks.title))
+  const candidates = await db
+    .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+    .from(tasks)
+    .where(and(eq(tasks.teamId, task.teamId), ne(tasks.id, taskId), ne(tasks.status, 'cancelled')))
+    .orderBy(asc(tasks.title))
+  return { deps, candidates: candidates.filter((c) => !deps.some((d) => d.id === c.id)), canManage: canManage(me, task) }
+}
