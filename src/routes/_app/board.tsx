@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Columns3, GanttChart, List, Pencil, Plus, Search } from 'lucide-react'
+import { Columns3, Download, GanttChart, List, Pencil, Plus, Search } from 'lucide-react'
 import * as React from 'react'
 import { CompletionModal } from '#/components/CompletionModal'
 import type { CompletionSummary } from '#/components/CompletionModal'
@@ -10,6 +10,9 @@ import { PRIORITY_LABEL } from '#/components/kanban/Card'
 import { Timeline } from '#/components/Timeline'
 import { fmtClock } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
+import { downloadCsv } from '#/lib/download-csv'
+import { exportTasksCsv } from '#/server/exports'
+import { can } from '#/server/roles'
 import { finishTask, finishTaskManually, listTasks, moveTask, pauseTask, returnToPool, startTask, taskFilterSchema } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/board')({
@@ -35,6 +38,15 @@ function Board() {
   const [summary, setSummary] = React.useState<CompletionSummary | null>(null)
   const [confirmManual, setConfirmManual] = React.useState<MovePayload | null>(null)
   const set = (patch: Partial<typeof search>) => navigate({ search: (prev) => ({ ...prev, ...patch }) })
+
+  async function exportCsv() {
+    try {
+      downloadCsv(await exportTasksCsv({ data: { teamId: search.teamId, assigneeId: search.assigneeId, priority: search.priority, search: search.search } }))
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao exportar')
+    }
+  }
 
   async function apply(p: MovePayload): Promise<boolean> {
     const data = { taskId: p.task.id }
@@ -85,6 +97,9 @@ function Board() {
               </button>
             ))}
           </div>
+          {can(me, 'export.csv') && (
+            <button onClick={exportCsv} className="btn-ghost px-3 py-2 text-xs"><Download className="h-4 w-4" /> CSV</button>
+          )}
           {me.role !== 'MEMBER' && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Tarefa</Link>}
         </div>
       </div>

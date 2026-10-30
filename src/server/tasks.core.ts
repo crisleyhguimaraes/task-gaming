@@ -1,11 +1,12 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Priority } from '#/db/schema'
 import { challenges, opportunities, taskDependencies, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
+import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
-import { canManage, canSee, fail, isAdmin } from './roles'
+import { canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
 import { scoreTask } from './scoring'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
 
@@ -77,7 +78,7 @@ export async function pauseTaskFor(me: AuthCtx, taskId: string, now = new Date()
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'in_progress') fail('Tarefa não está em andamento')
-    if (task.assignedToId !== me.userId && !canManage(me, task)) fail('Sem permissão')
+    if (task.assignedToId !== me.userId && !canManage(me, task)) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'paused' }).where(eq(tasks.id, taskId)).returning()
     return updated!
@@ -113,7 +114,7 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'in_progress' && task.status !== 'paused') fail('Tarefa não está em execução')
-    if (task.assignedToId !== me.userId && !canManage(me, task)) fail('Sem permissão')
+    if (task.assignedToId !== me.userId && !canManage(me, task)) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const logs = await tx.select().from(taskTimeLogs).where(eq(taskTimeLogs.taskId, taskId)).orderBy(asc(taskTimeLogs.startedAt))
     const { movingSeconds, elapsedSeconds } = summarizeLogs(logs, task.estimatedSeconds, now)
@@ -180,8 +181,8 @@ export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = n
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'pending' && task.status !== 'paused') fail('Só tarefas pendentes ou pausadas podem ser concluídas manualmente')
-    if (task.assignedToId && task.assignedToId !== me.userId && !canManage(me, task)) fail('Sem permissão')
-    if (!task.assignedToId && !canManage(me, task) && task.teamId !== me.teamId) fail('Sem permissão')
+    if (task.assignedToId && task.assignedToId !== me.userId && !canManage(me, task)) forbid()
+    if (!task.assignedToId && !canManage(me, task) && task.teamId !== me.teamId) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx
       .update(tasks)
@@ -227,7 +228,7 @@ export async function returnToPoolFor(me: AuthCtx, taskId: string, now = new Dat
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'in_progress' && task.status !== 'paused' && task.status !== 'pending') fail('Tarefa não está aberta')
-    if (task.assignedToId !== me.userId && !canManage(me, task)) fail('Sem permissão')
+    if (task.assignedToId !== me.userId && !canManage(me, task)) forbid()
     if (task.challengeId) fail('Tentativa de desafio não vai pro pool')
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'pending', assignedToId: null }).where(eq(tasks.id, taskId)).returning()
@@ -245,7 +246,7 @@ export async function returnToPoolFor(me: AuthCtx, taskId: string, now = new Dat
 export async function cancelTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
-    if (!canManage(me, task)) fail('Sem permissão')
+    if (!canManage(me, task)) forbid()
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa já encerrada')
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'cancelled', awardedPoints: null }).where(eq(tasks.id, taskId)).returning()
@@ -263,7 +264,7 @@ export async function cancelTaskFor(me: AuthCtx, taskId: string, now = new Date(
 export async function validatePointsFor(me: AuthCtx, taskId: string, approve: boolean, reason?: string) {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
-    if (!canManage(me, task)) fail('Sem permissão')
+    if (!canManage(me, task)) forbid()
     if (task.status !== 'finished' || !task.needsValidation) fail('Tarefa não aguarda validação')
     const [updated] = await tx
       .update(tasks)
@@ -276,6 +277,31 @@ export async function validatePointsFor(me: AuthCtx, taskId: string, approve: bo
       entityId: taskId,
       changes: diffFields(task, updated!, ['needsValidation', 'awardedPoints']),
       meta: reason ? { reason } : undefined,
+    })
+    await notify(tx, me, {
+      userIds: [task.assignedToId],
+      type: approve ? 'points.approved' : 'points.rejected',
+      entityType: 'task',
+      entityId: taskId,
+      payload: { taskTitle: task.title, by: me.name },
+    })
+    return updated!
+  })
+}
+
+/** Cancelada volta a pendente com o mesmo responsável; os pontos já foram zerados ao cancelar. */
+export async function restoreTaskFor(me: AuthCtx, taskId: string) {
+  requireCan(me, 'task.restore')
+  return db.transaction(async (tx) => {
+    const task = await loadTask(tx, me, taskId)
+    if (!canManage(me, task)) forbid()
+    if (task.status !== 'cancelled') fail('Só tarefas canceladas podem ser restauradas')
+    const [updated] = await tx.update(tasks).set({ status: 'pending' }).where(eq(tasks.id, taskId)).returning()
+    await recordAudit(tx, me, {
+      action: 'task.restored',
+      entityType: 'task',
+      entityId: taskId,
+      changes: diffFields(task, updated!, ['status']),
     })
     return updated!
   })
@@ -323,6 +349,16 @@ async function assertOpportunityOfTeam(tx: Tx, me: AuthCtx, opportunityId: strin
   if (!o) fail('Oportunidade não encontrada')
 }
 
+function notifyAssignee(tx: Tx, me: AuthCtx, task: { id: string; title: string; assignedToId: string | null }) {
+  return notify(tx, me, {
+    userIds: [task.assignedToId],
+    type: 'task.assigned',
+    entityType: 'task',
+    entityId: task.id,
+    payload: { taskTitle: task.title, by: me.name },
+  })
+}
+
 async function assertAssigneeInTeam(tx: Tx, assignedToId: string | null, teamId: string) {
   if (!assignedToId) return
   const [u] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, assignedToId), eq(users.teamId, teamId)))
@@ -330,7 +366,7 @@ async function assertAssigneeInTeam(tx: Tx, assignedToId: string | null, teamId:
 }
 
 export async function createTaskFor(me: AuthCtx, data: NewTask) {
-  if (!canManage(me, { teamId: data.teamId })) fail('Sem permissão')
+  if (!canManage(me, { teamId: data.teamId })) forbid()
   return db.transaction(async (tx) => {
     const [team] = await tx.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
     if (!team) fail('Equipe não encontrada')
@@ -356,6 +392,7 @@ export async function createTaskFor(me: AuthCtx, data: NewTask) {
       entityId: task!.id,
       meta: { title: task!.title, teamId: task!.teamId, assignedToId: task!.assignedToId, opportunityId: task!.opportunityId },
     })
+    await notifyAssignee(tx, me, task!)
     return task!
   })
 }
@@ -373,7 +410,7 @@ const auditedTaskFields = ['title', 'description', 'basePoints', 'estimatedSecon
 export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
   await db.transaction(async (tx) => {
     const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
-    if (!task || !canManage(me, task)) fail('Sem permissão')
+    if (!task || !canManage(me, task)) forbid()
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa encerrada não pode ser editada')
     await assertAssigneeInTeam(tx, data.assignedToId, task.teamId)
     if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')
@@ -395,5 +432,26 @@ export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
       .returning()
     const changes = diffFields(task, updated!, auditedTaskFields)
     if (Object.keys(changes).length) await recordAudit(tx, me, { action: 'task.updated', entityType: 'task', entityId: task.id, changes })
+    if (updated!.assignedToId !== task.assignedToId) await notifyAssignee(tx, me, updated!)
   })
+}
+
+export type TaskListFilters = { teamId?: string; assigneeId?: string; priority?: Priority; search?: string }
+
+/** Admin vê o tenant (ou a equipe filtrada); os demais, só a própria equipe. */
+export function taskTeamScope(me: AuthCtx, teamId?: string) {
+  if (!isAdmin(me)) return eq(tasks.teamId, me.teamId ?? '')
+  return teamId ? eq(tasks.teamId, teamId) : undefined
+}
+
+/** Escopo de visibilidade compartilhado entre a lista do board e a exportação. */
+export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
+  return and(
+    eq(tasks.tenantId, me.tenantId),
+    taskTeamScope(me, filters.teamId),
+    isNull(tasks.challengeId),
+    filters.assigneeId === 'pool' ? isNull(tasks.assignedToId) : filters.assigneeId ? eq(tasks.assignedToId, filters.assigneeId) : undefined,
+    filters.priority ? eq(tasks.priority, filters.priority) : undefined,
+    filters.search ? or(ilike(tasks.title, `%${filters.search}%`), ilike(tasks.description, `%${filters.search}%`)) : undefined,
+  )
 }

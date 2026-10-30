@@ -1,11 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, desc, eq, ilike, inArray, isNull, ne, or } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { taskDependencies, tasks, teams, users } from '#/db/schema'
 import { authMiddleware } from './auth-context'
-import { canManage, canSee, fail, isAdmin } from './roles'
-import { activeTaskFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
+import { canManage, canSee, fail, forbid, isAdmin } from './roles'
+import { activeTaskFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskListWhere, taskPlayerState, taskTeamScope, updateTaskFor, validatePointsFor } from './tasks.core'
 import { capFor } from './time'
 import { heroStats, pointsByDay, ranking, streak, teamFeed, tenantSettings, todayProgress, totalPoints } from './stats'
 import { listChallengesFor } from './challenges.core'
@@ -84,6 +84,11 @@ export const cancelTask = createServerFn({ method: 'POST' })
   .validator(byId)
   .handler(({ data, context }) => cancelTaskFor(context.auth, data.taskId))
 
+export const restoreTask = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .validator(byId)
+  .handler(({ data, context }) => restoreTaskFor(context.auth, data.taskId))
+
 export const validatePoints = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(byId.extend({ approve: z.boolean(), reason: z.string().trim().max(300).optional() }))
@@ -99,7 +104,7 @@ export const getTeam = createServerFn()
       ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
       : []
     const teamId = isAdmin(me) ? (data.teamId ?? null) : me.teamId
-    if (teamId && !isAdmin(me) && teamId !== me.teamId) fail('Sem permissão')
+    if (teamId && !isAdmin(me) && teamId !== me.teamId) forbid()
     return {
       teams: teamList,
       teamId,
@@ -186,22 +191,13 @@ export const listTasks = createServerFn()
   .middleware([authMiddleware])
   .validator(taskFilterSchema)
   .handler(async ({ data, context: { auth: me } }) => {
-    const teamScope = isAdmin(me) ? (data.teamId ? eq(tasks.teamId, data.teamId) : undefined) : eq(tasks.teamId, me.teamId ?? '')
+    const teamScope = taskTeamScope(me, data.teamId)
     const rows = await db
       .select({ task: tasks, assigneeName: users.name, teamName: teams.name })
       .from(tasks)
       .leftJoin(users, eq(users.id, tasks.assignedToId))
       .innerJoin(teams, eq(teams.id, tasks.teamId))
-      .where(
-        and(
-          eq(tasks.tenantId, me.tenantId),
-          teamScope,
-          isNull(tasks.challengeId),
-          data.assigneeId === 'pool' ? isNull(tasks.assignedToId) : data.assigneeId ? eq(tasks.assignedToId, data.assigneeId) : undefined,
-          data.priority ? eq(tasks.priority, data.priority) : undefined,
-          data.search ? or(ilike(tasks.title, `%${data.search}%`), ilike(tasks.description, `%${data.search}%`)) : undefined,
-        ),
-      )
+      .where(taskListWhere(me, data))
       .orderBy(asc(tasks.sortOrder), asc(tasks.createdAt))
     const teamList = isAdmin(me)
       ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))

@@ -1,18 +1,52 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
-import { ArrowLeft, Ban, Lock, Pencil, Undo2 } from 'lucide-react'
+import { ArrowLeft, Ban, Lock, Pencil, RotateCcw, Undo2 } from 'lucide-react'
 import * as React from 'react'
+import { AuditEntry } from '#/components/AuditEntry'
 import { CompletionModal } from '#/components/CompletionModal'
 import type { CompletionSummary } from '#/components/CompletionModal'
+import { Notes } from '#/components/Notes'
 import { TaskPlayer } from '#/components/TaskPlayer'
-import { cancelTask, finishTask, getTask, pauseTask, returnToPool, startTask } from '#/server/tasks'
+import { appRoute } from '#/lib/app-route'
+import { getTaskHistory } from '#/server/audit'
+import { listNotes } from '#/server/notes'
+import { can } from '#/server/roles'
+import { cancelTask, finishTask, getTask, pauseTask, restoreTask, returnToPool, startTask } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/tasks/$taskId')({
-  loader: ({ params }) => getTask({ data: { taskId: params.taskId } }),
-  component: Player,
+  loader: async ({ params }) => {
+    const target = { type: 'task', id: params.taskId } as const
+    const task = await getTask({ data: { taskId: params.taskId } })
+    const [notes, history] = await Promise.all([listNotes({ data: target }), task.canManage ? getTaskHistory({ data: { taskId: params.taskId } }) : null])
+    return { task, notes, history }
+  },
+  component: TaskPage,
 })
 
-function Player() {
-  const task = Route.useLoaderData()
+function TaskPage() {
+  const { task, notes, history } = Route.useLoaderData()
+  return (
+    <div className="space-y-8">
+      <Player task={task} />
+      <Notes target={{ type: 'task', id: task.id }} notes={notes} />
+      {history && <TaskHistory events={history} />}
+    </div>
+  )
+}
+
+function TaskHistory({ events }: { events: Awaited<ReturnType<typeof getTaskHistory>> }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold text-neutral-300">Histórico</h2>
+      <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
+        {events.map((e) => <li key={e.id}><AuditEntry event={e} showEntity={false} /></li>)}
+        {events.length === 0 && <li className="px-4 py-6 text-center text-sm text-neutral-500">Sem eventos registrados.</li>}
+      </ul>
+    </section>
+  )
+}
+
+function Player({ task }: { task: Awaited<ReturnType<typeof getTask>> }) {
+  const { me } = appRoute.useRouteContext()
   const router = useRouter()
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -42,7 +76,15 @@ function Player() {
         <p className="text-sm text-neutral-400">
           {task.status === 'finished' ? `Concluída · ${task.awardedPoints ?? 0} pts${task.needsValidation ? ' (aguardando validação)' : ''}` : 'Cancelada'}
         </p>
-        <Link to="/" className="btn-ghost">Voltar para Hoje</Link>
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <div className="flex justify-center gap-2">
+          <Link to="/" className="btn-ghost">Voltar para Hoje</Link>
+          {task.status === 'cancelled' && task.canManage && can(me, 'task.restore') && (
+            <button onClick={() => run(() => restoreTask({ data }))} disabled={busy} className="btn-primary">
+              <RotateCcw className="h-4 w-4" /> Restaurar
+            </button>
+          )}
+        </div>
         {completion}
       </div>
     )

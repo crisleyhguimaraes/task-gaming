@@ -2,8 +2,11 @@ import { and, asc, eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { leads, notes, opportunities, tasks, users } from '#/db/schema'
 import { recordAudit } from './audit.core'
+import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
 import { canSee, fail } from './roles'
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export type NoteTarget = { type: 'task' | 'lead' | 'opportunity'; id: string }
 
@@ -39,7 +42,23 @@ export async function addNoteFor(me: AuthCtx, target: NoteTarget, rawBody: strin
       .values({ tenantId: me.tenantId, authorId: me.userId, body, [noteKey[target.type]]: target.id })
       .returning()
     await recordAudit(tx, me, { action: 'note.created', entityType: target.type, entityId: target.id, meta: { noteId: note!.id } })
+    if (target.type === 'task') await notifyTaskNote(tx, me, target.id)
     return note!
+  })
+}
+
+async function notifyTaskNote(tx: Tx, me: AuthCtx, taskId: string) {
+  const [task] = await tx
+    .select({ title: tasks.title, assignedToId: tasks.assignedToId, createdById: tasks.createdById })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId)))
+  if (!task) return
+  await notify(tx, me, {
+    userIds: [task.assignedToId, task.createdById],
+    type: 'note.created',
+    entityType: 'task',
+    entityId: taskId,
+    payload: { taskTitle: task.title, by: me.name },
   })
 }
 
