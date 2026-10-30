@@ -11,16 +11,28 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as ChangePasswordRouteImport } from './routes/change-password'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as TwoFactorRouteImport } from './routes/two-factor'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppBoardRouteImport } from './routes/_app/board'
+import { Route as AppPipelineRouteImport } from './routes/_app/pipeline'
 import { Route as AppProfileRouteImport } from './routes/_app/profile'
 import { Route as AppTeamRouteImport } from './routes/_app/team'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as AppChallengesIndexRouteImport } from './routes/_app/challenges/index'
 import { Route as AppChallengesChallengeIdRouteImport } from './routes/_app/challenges/$challengeId'
 import { Route as AppChallengesNewRouteImport } from './routes/_app/challenges/new'
+import { Route as AppLeadsIndexRouteImport } from './routes/_app/leads/index'
+import { Route as AppLeadsLeadIdRouteImport } from './routes/_app/leads/$leadId'
+import { Route as AppLeadsImportRouteImport } from './routes/_app/leads/import'
+import { Route as AppOpportunitiesOpportunityIdRouteImport } from './routes/_app/opportunities/$opportunityId'
+import { Route as AppSettingsAuditRouteImport } from './routes/_app/settings/audit'
+import { Route as AppSettingsPermissionsRouteImport } from './routes/_app/settings/permissions'
+import { Route as AppSettingsPipelineRouteImport } from './routes/_app/settings/pipeline'
 import { Route as AppSettingsTeamsRouteImport } from './routes/_app/settings/teams'
+import { Route as AppSettingsTenantRouteImport } from './routes/_app/settings/tenant'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks/$taskId'
 import { Route as AppTasksNewRouteImport } from './routes/_app/tasks/new'
@@ -38,9 +50,24 @@ const ChangePasswordRoute = ChangePasswordRouteImport.update({
   path: '/change-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TwoFactorRoute = TwoFactorRouteImport.update({
+  id: '/two-factor',
+  path: '/two-factor',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -51,6 +78,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppBoardRoute = AppBoardRouteImport.update({
   id: '/board',
   path: '/board',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPipelineRoute = AppPipelineRouteImport.update({
+  id: '/pipeline',
+  path: '/pipeline',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProfileRoute = AppProfileRouteImport.update({
@@ -84,9 +116,50 @@ const AppChallengesNewRoute = AppChallengesNewRouteImport.update({
   path: '/challenges/new',
   getParentRoute: () => AppRoute,
 } as any)
+const AppLeadsIndexRoute = AppLeadsIndexRouteImport.update({
+  id: '/leads/',
+  path: '/leads/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLeadsLeadIdRoute = AppLeadsLeadIdRouteImport.update({
+  id: '/leads/$leadId',
+  path: '/leads/$leadId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLeadsImportRoute = AppLeadsImportRouteImport.update({
+  id: '/leads/import',
+  path: '/leads/import',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppOpportunitiesOpportunityIdRoute =
+  AppOpportunitiesOpportunityIdRouteImport.update({
+    id: '/opportunities/$opportunityId',
+    path: '/opportunities/$opportunityId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
+  id: '/settings/audit',
+  path: '/settings/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsPermissionsRoute = AppSettingsPermissionsRouteImport.update({
+  id: '/settings/permissions',
+  path: '/settings/permissions',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsPipelineRoute = AppSettingsPipelineRouteImport.update({
+  id: '/settings/pipeline',
+  path: '/settings/pipeline',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsTeamsRoute = AppSettingsTeamsRouteImport.update({
   id: '/settings/teams',
   path: '/settings/teams',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsTenantRoute = AppSettingsTenantRouteImport.update({
+  id: '/settings/tenant',
+  path: '/settings/tenant',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
@@ -128,39 +201,63 @@ const AppTasksEditTaskIdRoute = AppTasksEditTaskIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/change-password': typeof ChangePasswordRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/two-factor': typeof TwoFactorRoute
   '/board': typeof AppBoardRoute
+  '/pipeline': typeof AppPipelineRoute
   '/profile': typeof AppProfileRoute
   '/team': typeof AppTeamRoute
   '/invite/$token': typeof InviteTokenRoute
   '/challenges/$challengeId': typeof AppChallengesChallengeIdRoute
   '/challenges/new': typeof AppChallengesNewRoute
+  '/leads/$leadId': typeof AppLeadsLeadIdRoute
+  '/leads/import': typeof AppLeadsImportRoute
+  '/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
+  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/permissions': typeof AppSettingsPermissionsRoute
+  '/settings/pipeline': typeof AppSettingsPipelineRoute
   '/settings/teams': typeof AppSettingsTeamsRoute
+  '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/tasks/new': typeof AppTasksNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/challenges/': typeof AppChallengesIndexRoute
+  '/leads/': typeof AppLeadsIndexRoute
   '/admin/tenants/$tenantId': typeof AppAdminTenantsTenantIdRoute
   '/tasks/edit/$taskId': typeof AppTasksEditTaskIdRoute
   '/admin/tenants/': typeof AppAdminTenantsIndexRoute
 }
 export interface FileRoutesByTo {
   '/change-password': typeof ChangePasswordRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/two-factor': typeof TwoFactorRoute
   '/board': typeof AppBoardRoute
+  '/pipeline': typeof AppPipelineRoute
   '/profile': typeof AppProfileRoute
   '/team': typeof AppTeamRoute
   '/invite/$token': typeof InviteTokenRoute
   '/': typeof AppIndexRoute
   '/challenges/$challengeId': typeof AppChallengesChallengeIdRoute
   '/challenges/new': typeof AppChallengesNewRoute
+  '/leads/$leadId': typeof AppLeadsLeadIdRoute
+  '/leads/import': typeof AppLeadsImportRoute
+  '/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
+  '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/permissions': typeof AppSettingsPermissionsRoute
+  '/settings/pipeline': typeof AppSettingsPipelineRoute
   '/settings/teams': typeof AppSettingsTeamsRoute
+  '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/tasks/new': typeof AppTasksNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/challenges': typeof AppChallengesIndexRoute
+  '/leads': typeof AppLeadsIndexRoute
   '/admin/tenants/$tenantId': typeof AppAdminTenantsTenantIdRoute
   '/tasks/edit/$taskId': typeof AppTasksEditTaskIdRoute
   '/admin/tenants': typeof AppAdminTenantsIndexRoute
@@ -169,20 +266,32 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/change-password': typeof ChangePasswordRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/two-factor': typeof TwoFactorRoute
   '/_app/board': typeof AppBoardRoute
+  '/_app/pipeline': typeof AppPipelineRoute
   '/_app/profile': typeof AppProfileRoute
   '/_app/team': typeof AppTeamRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_app/challenges/$challengeId': typeof AppChallengesChallengeIdRoute
   '/_app/challenges/new': typeof AppChallengesNewRoute
+  '/_app/leads/$leadId': typeof AppLeadsLeadIdRoute
+  '/_app/leads/import': typeof AppLeadsImportRoute
+  '/_app/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
+  '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/permissions': typeof AppSettingsPermissionsRoute
+  '/_app/settings/pipeline': typeof AppSettingsPipelineRoute
   '/_app/settings/teams': typeof AppSettingsTeamsRoute
+  '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/tasks/new': typeof AppTasksNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/challenges/': typeof AppChallengesIndexRoute
+  '/_app/leads/': typeof AppLeadsIndexRoute
   '/_app/admin/tenants/$tenantId': typeof AppAdminTenantsTenantIdRoute
   '/_app/tasks/edit/$taskId': typeof AppTasksEditTaskIdRoute
   '/_app/admin/tenants/': typeof AppAdminTenantsIndexRoute
@@ -192,39 +301,63 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/change-password'
+    | '/forgot-password'
     | '/login'
+    | '/reset-password'
+    | '/two-factor'
     | '/board'
+    | '/pipeline'
     | '/profile'
     | '/team'
     | '/invite/$token'
     | '/challenges/$challengeId'
     | '/challenges/new'
+    | '/leads/$leadId'
+    | '/leads/import'
+    | '/opportunities/$opportunityId'
+    | '/settings/audit'
+    | '/settings/permissions'
+    | '/settings/pipeline'
     | '/settings/teams'
+    | '/settings/tenant'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/tasks/new'
     | '/api/auth/$'
     | '/challenges/'
+    | '/leads/'
     | '/admin/tenants/$tenantId'
     | '/tasks/edit/$taskId'
     | '/admin/tenants/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/change-password'
+    | '/forgot-password'
     | '/login'
+    | '/reset-password'
+    | '/two-factor'
     | '/board'
+    | '/pipeline'
     | '/profile'
     | '/team'
     | '/invite/$token'
     | '/'
     | '/challenges/$challengeId'
     | '/challenges/new'
+    | '/leads/$leadId'
+    | '/leads/import'
+    | '/opportunities/$opportunityId'
+    | '/settings/audit'
+    | '/settings/permissions'
+    | '/settings/pipeline'
     | '/settings/teams'
+    | '/settings/tenant'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/tasks/new'
     | '/api/auth/$'
     | '/challenges'
+    | '/leads'
     | '/admin/tenants/$tenantId'
     | '/tasks/edit/$taskId'
     | '/admin/tenants'
@@ -232,20 +365,32 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/change-password'
+    | '/forgot-password'
     | '/login'
+    | '/reset-password'
+    | '/two-factor'
     | '/_app/board'
+    | '/_app/pipeline'
     | '/_app/profile'
     | '/_app/team'
     | '/invite/$token'
     | '/_app/'
     | '/_app/challenges/$challengeId'
     | '/_app/challenges/new'
+    | '/_app/leads/$leadId'
+    | '/_app/leads/import'
+    | '/_app/opportunities/$opportunityId'
+    | '/_app/settings/audit'
+    | '/_app/settings/permissions'
+    | '/_app/settings/pipeline'
     | '/_app/settings/teams'
+    | '/_app/settings/tenant'
     | '/_app/settings/users'
     | '/_app/tasks/$taskId'
     | '/_app/tasks/new'
     | '/api/auth/$'
     | '/_app/challenges/'
+    | '/_app/leads/'
     | '/_app/admin/tenants/$tenantId'
     | '/_app/tasks/edit/$taskId'
     | '/_app/admin/tenants/'
@@ -254,7 +399,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   ChangePasswordRoute: typeof ChangePasswordRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
+  TwoFactorRoute: typeof TwoFactorRoute
   InviteTokenRoute: typeof InviteTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -275,11 +423,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChangePasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/two-factor': {
+      id: '/two-factor'
+      path: '/two-factor'
+      fullPath: '/two-factor'
+      preLoaderRoute: typeof TwoFactorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -294,6 +463,13 @@ declare module '@tanstack/react-router' {
       path: '/board'
       fullPath: '/board'
       preLoaderRoute: typeof AppBoardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/pipeline': {
+      id: '/_app/pipeline'
+      path: '/pipeline'
+      fullPath: '/pipeline'
+      preLoaderRoute: typeof AppPipelineRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/profile': {
@@ -338,11 +514,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppChallengesNewRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/leads/': {
+      id: '/_app/leads/'
+      path: '/leads'
+      fullPath: '/leads/'
+      preLoaderRoute: typeof AppLeadsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/leads/$leadId': {
+      id: '/_app/leads/$leadId'
+      path: '/leads/$leadId'
+      fullPath: '/leads/$leadId'
+      preLoaderRoute: typeof AppLeadsLeadIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/leads/import': {
+      id: '/_app/leads/import'
+      path: '/leads/import'
+      fullPath: '/leads/import'
+      preLoaderRoute: typeof AppLeadsImportRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/opportunities/$opportunityId': {
+      id: '/_app/opportunities/$opportunityId'
+      path: '/opportunities/$opportunityId'
+      fullPath: '/opportunities/$opportunityId'
+      preLoaderRoute: typeof AppOpportunitiesOpportunityIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/audit': {
+      id: '/_app/settings/audit'
+      path: '/settings/audit'
+      fullPath: '/settings/audit'
+      preLoaderRoute: typeof AppSettingsAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/permissions': {
+      id: '/_app/settings/permissions'
+      path: '/settings/permissions'
+      fullPath: '/settings/permissions'
+      preLoaderRoute: typeof AppSettingsPermissionsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/pipeline': {
+      id: '/_app/settings/pipeline'
+      path: '/settings/pipeline'
+      fullPath: '/settings/pipeline'
+      preLoaderRoute: typeof AppSettingsPipelineRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/teams': {
       id: '/_app/settings/teams'
       path: '/settings/teams'
       fullPath: '/settings/teams'
       preLoaderRoute: typeof AppSettingsTeamsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/tenant': {
+      id: '/_app/settings/tenant'
+      path: '/settings/tenant'
+      fullPath: '/settings/tenant'
+      preLoaderRoute: typeof AppSettingsTenantRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/users': {
@@ -399,16 +631,25 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppBoardRoute: typeof AppBoardRoute
+  AppPipelineRoute: typeof AppPipelineRoute
   AppProfileRoute: typeof AppProfileRoute
   AppTeamRoute: typeof AppTeamRoute
   AppIndexRoute: typeof AppIndexRoute
   AppChallengesChallengeIdRoute: typeof AppChallengesChallengeIdRoute
   AppChallengesNewRoute: typeof AppChallengesNewRoute
+  AppLeadsLeadIdRoute: typeof AppLeadsLeadIdRoute
+  AppLeadsImportRoute: typeof AppLeadsImportRoute
+  AppOpportunitiesOpportunityIdRoute: typeof AppOpportunitiesOpportunityIdRoute
+  AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsPermissionsRoute: typeof AppSettingsPermissionsRoute
+  AppSettingsPipelineRoute: typeof AppSettingsPipelineRoute
   AppSettingsTeamsRoute: typeof AppSettingsTeamsRoute
+  AppSettingsTenantRoute: typeof AppSettingsTenantRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppTasksTaskIdRoute: typeof AppTasksTaskIdRoute
   AppTasksNewRoute: typeof AppTasksNewRoute
   AppChallengesIndexRoute: typeof AppChallengesIndexRoute
+  AppLeadsIndexRoute: typeof AppLeadsIndexRoute
   AppAdminTenantsTenantIdRoute: typeof AppAdminTenantsTenantIdRoute
   AppTasksEditTaskIdRoute: typeof AppTasksEditTaskIdRoute
   AppAdminTenantsIndexRoute: typeof AppAdminTenantsIndexRoute
@@ -416,16 +657,25 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppBoardRoute: AppBoardRoute,
+  AppPipelineRoute: AppPipelineRoute,
   AppProfileRoute: AppProfileRoute,
   AppTeamRoute: AppTeamRoute,
   AppIndexRoute: AppIndexRoute,
   AppChallengesChallengeIdRoute: AppChallengesChallengeIdRoute,
   AppChallengesNewRoute: AppChallengesNewRoute,
+  AppLeadsLeadIdRoute: AppLeadsLeadIdRoute,
+  AppLeadsImportRoute: AppLeadsImportRoute,
+  AppOpportunitiesOpportunityIdRoute: AppOpportunitiesOpportunityIdRoute,
+  AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsPermissionsRoute: AppSettingsPermissionsRoute,
+  AppSettingsPipelineRoute: AppSettingsPipelineRoute,
   AppSettingsTeamsRoute: AppSettingsTeamsRoute,
+  AppSettingsTenantRoute: AppSettingsTenantRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppTasksTaskIdRoute: AppTasksTaskIdRoute,
   AppTasksNewRoute: AppTasksNewRoute,
   AppChallengesIndexRoute: AppChallengesIndexRoute,
+  AppLeadsIndexRoute: AppLeadsIndexRoute,
   AppAdminTenantsTenantIdRoute: AppAdminTenantsTenantIdRoute,
   AppTasksEditTaskIdRoute: AppTasksEditTaskIdRoute,
   AppAdminTenantsIndexRoute: AppAdminTenantsIndexRoute,
@@ -436,7 +686,10 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   ChangePasswordRoute: ChangePasswordRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
+  TwoFactorRoute: TwoFactorRoute,
   InviteTokenRoute: InviteTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

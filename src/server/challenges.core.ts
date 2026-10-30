@@ -3,7 +3,7 @@ import { db } from '#/db'
 import { challenges, tasks, teams, users } from '#/db/schema'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
-import { canManage, fail, isAdmin } from './roles'
+import { canManage, fail, forbid, isAdmin } from './roles'
 
 export const validAttempt = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
 
@@ -64,7 +64,7 @@ export async function archiveChallengeFor(me: AuthCtx, challengeId: string) {
   await db.transaction(async (tx) => {
     const [c] = await tx.select().from(challenges).where(and(eq(challenges.id, challengeId), eq(challenges.tenantId, me.tenantId)))
     if (!c) fail('Desafio não encontrado')
-    if (c.createdById !== me.userId && !canManage(me, c)) fail('Sem permissão')
+    if (c.createdById !== me.userId && !canManage(me, c)) forbid()
     await tx.update(challenges).set({ archivedAt: new Date() }).where(eq(challenges.id, c.id))
     await recordAudit(tx, me, { action: 'challenge.archived', entityType: 'challenge', entityId: c.id, meta: { title: c.title } })
   })

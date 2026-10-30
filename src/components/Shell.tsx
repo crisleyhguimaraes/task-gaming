@@ -1,6 +1,6 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
 import * as React from 'react'
-import { Bell, Building2, ChevronDown, Columns3, Flame, LogOut, Moon, Settings, Sun, SunMedium, Trophy, UserCircle, UserCog, Users, UsersRound } from 'lucide-react'
+import { Building2, ChevronDown, ClipboardList, Columns3, ContactRound, Flame, Funnel, Handshake, LogOut, Moon, ScrollText, Settings, ShieldCheck, SlidersHorizontal, Sun, SunMedium, Trophy, UserCircle, UserCog, Users, UsersRound } from 'lucide-react'
 import { authClient } from '#/lib/auth-client'
 import { appRoute } from '#/lib/app-route'
 import { fmtClock, roleLabel } from '#/lib/format'
@@ -8,7 +8,9 @@ import { useElapsed } from '#/lib/useElapsed'
 import { getTheme, setTheme } from '#/lib/theme'
 import type { Theme } from '#/lib/theme'
 import { levelFor } from '#/server/levels'
+import { can } from '#/server/roles'
 import { Avatar } from './Avatar'
+import { NotificationBell } from './NotificationBell'
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const { me, active, totalPoints, attention } = appRoute.useRouteContext()
@@ -16,7 +18,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   // grupos abertos: começa aberto se uma rota filha estiver ativa
   const [open, setOpen] = React.useState<Record<string, boolean>>({})
-  const isAdmin = me.role === 'SUPER_ADMIN' || me.role === 'TENANT_ADMIN'
   const level = levelFor(totalPoints)
 
   async function signOut() {
@@ -30,22 +31,31 @@ export function Shell({ children }: { children: React.ReactNode }) {
     router.navigate({ to: '/admin/tenants' })
   }
 
-  type Item = { to: '/' | '/challenges' | '/board' | '/team' | '/settings/teams' | '/settings/users' | '/admin/tenants'; label: string; icon: typeof Sun; show: boolean; children?: Array<Item> }
+  type Path = '/' | '/challenges' | '/board' | '/team' | '/pipeline' | '/leads' | '/settings/teams' | '/settings/users' | '/settings/permissions' | '/settings/pipeline' | '/settings/tenant' | '/settings/audit' | '/admin/tenants'
+  type Item = { to: Path; label: string; icon: typeof Sun; show: boolean; children?: Array<Item> }
+  const settings: Array<Item> = [
+    { to: '/settings/teams', label: 'Equipes', icon: UsersRound, show: can(me, 'team.manage') },
+    { to: '/settings/users', label: 'Usuários', icon: UserCog, show: can(me, 'user.read') },
+    { to: '/settings/permissions', label: 'Permissões', icon: ShieldCheck, show: can(me, 'permissions.manage') },
+    { to: '/settings/pipeline', label: 'Funil de vendas', icon: Funnel, show: can(me, 'pipeline.configure') },
+    { to: '/settings/tenant', label: 'Organização', icon: SlidersHorizontal, show: can(me, 'tenant.configure') },
+    { to: '/settings/audit', label: 'Auditoria', icon: ScrollText, show: can(me, 'audit.read') },
+  ]
+  const firstSetting = settings.find((c) => c.show)
   const nav: Array<Item> = [
     { to: '/', label: 'Hoje', icon: Sun, show: true },
     { to: '/challenges', label: 'Desafios', icon: Trophy, show: true },
     { to: '/board', label: 'Board', icon: Columns3, show: true },
+    { to: '/pipeline', label: 'Pipeline', icon: Handshake, show: true },
+    { to: '/leads', label: 'Leads', icon: ContactRound, show: true },
     { to: '/team', label: 'Equipe', icon: Users, show: true },
     {
       // Configurações: o pai leva ao primeiro subitem; subitens sempre visíveis, indentados.
-      to: isAdmin ? '/settings/teams' : '/settings/users',
+      to: firstSetting?.to ?? '/settings/users',
       label: 'Configurações',
       icon: Settings,
-      show: isAdmin || me.role === 'TEAM_LEADER',
-      children: [
-        { to: '/settings/teams', label: 'Equipes', icon: UsersRound, show: isAdmin },
-        { to: '/settings/users', label: 'Usuários', icon: UserCog, show: true },
-      ],
+      show: Boolean(firstSetting),
+      children: settings,
     },
     { to: '/admin/tenants', label: 'Tenants', icon: Building2, show: me.role === 'SUPER_ADMIN' },
   ]
@@ -151,8 +161,9 @@ function HeaderActions({ me, attention, onSignOut }: { me: { name: string; role:
       <button type="button" onClick={() => choose(theme === 'dark' ? 'light' : 'dark')} className={roundBtn} title={theme === 'dark' ? 'Mudar para claro' : 'Mudar para escuro'}>
         {theme === 'dark' ? <SunMedium className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
       </button>
+      <NotificationBell />
       <Link to="/team" className={roundBtn} title={alertText || 'Nada pendente'}>
-        <Bell className="h-5 w-5" />
+        <ClipboardList className="h-5 w-5" />
         {alerts > 0 && <span className="absolute top-2 right-2.5 h-2.5 w-2.5 rounded-full border-2 border-neutral-900 bg-rose-500" />}
       </Link>
       <details className="relative">

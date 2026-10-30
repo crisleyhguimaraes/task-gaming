@@ -4,7 +4,7 @@ import type { AuditChanges, AuditMeta } from '#/db/schema'
 import { auditEvents, tasks } from '#/db/schema'
 import type { AuditAction } from '#/lib/audit'
 import type { AuthCtx } from './roles'
-import { canManage, fail } from './roles'
+import { canManage, fail, forbid } from './roles'
 
 type Actor = Pick<AuthCtx, 'userId' | 'tenantId' | 'name' | 'impersonatedBy'>
 
@@ -78,7 +78,7 @@ export async function listAuditEventsFor(me: AuthCtx, filters: AuditFilters) {
 export async function taskHistoryFor(me: AuthCtx, taskId: string) {
   const [task] = await db.select({ teamId: tasks.teamId }).from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId)))
   if (!task) fail('Tarefa não encontrada')
-  if (!canManage(me, task)) fail('Sem permissão')
+  if (!canManage(me, task)) forbid()
   return db
     .select()
     .from(auditEvents)

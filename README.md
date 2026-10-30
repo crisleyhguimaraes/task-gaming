@@ -77,6 +77,37 @@ Outras regras que moldam o jogo:
 
 Não existe cadastro aberto. Pessoas entram por **convite por email** (link válido por 7 dias) ou criadas pelo gestor com senha temporária e troca obrigatória no primeiro login. Sessões duram 10 horas; um novo login derruba o anterior.
 
+### Permissões por capability
+
+Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que **líder** e **membro** podem em **Configurações → Permissões**; o papel de admin é fixo, e `tenant.manage` e `permissions.manage` não são delegáveis. Quem recebe uma capability delegada continua restrito à própria equipe. O escopo por equipe (`canManage`/`canSee`) segue valendo por baixo.
+
+Usuários podem ser **desativados** (derruba as sessões e devolve o trabalho aberto ao pool) e reativados. Toda negação de acesso vira um evento `access.denied`.
+
+## Auditoria
+
+Toda mudança relevante grava um evento em `audit_events` **na mesma transação** da mudança: quem fez (e, na impersonação, quem estava por trás), o quê, em qual registro e o valor antes e depois. Cobre tarefas, usuários, convites, equipes, tenants, desafios, dependências, permissões, leads, oportunidades, etapas do funil, logins, falhas de login e impersonação. Os eventos são só de inserção.
+
+- **Configurações → Auditoria** (admins): filtros por ação, entidade, ator e período, diff expansível e exportação CSV.
+- Na página de uma tarefa, gestores veem a linha do tempo daquela tarefa.
+- Não há purga automática: a tabela só cresce. Se pesar, o caminho é um script de retenção por data.
+
+## Segurança de conta
+
+- **Reset de senha por email**: a resposta é a mesma exista ou não o email. Sem `RESEND_API_KEY`, o link vai para o console do servidor.
+- **Rate limit** no login (5 por minuto) e no pedido de reset (3 por 10 minutos), contado em memória, então vale para uma instância. O limite é por IP e lê `x-forwarded-for`: **atrás de proxy, garanta esse cabeçalho**, senão todo mundo cai no mesmo balde.
+- **2FA TOTP** com códigos de recuperação, ativado no perfil. O gestor pode **exigir 2FA** para todo o tenant em Configurações → Organização. Ainda não há tela para resetar o 2FA de quem perdeu o celular e os códigos.
+
+## Pipeline comercial
+
+Leads, oportunidades e etapas do funil, multitenant e com a mesma visibilidade por equipe das tarefas.
+
+- **Leads**: cadastro com aviso de duplicado (e-mail ou telefone), pool da equipe com claim atômico, atribuição e **importação CSV** com mapeamento de colunas e prévia.
+- **Oportunidades**: nascem da conversão de um lead, na primeira etapa aberta. Mover para *Perdida* exige motivo; sair de uma etapa fechada exige a capability `opportunity.reopen`. Valor guardado em centavos.
+- **Etapas**: configuráveis por tenant (Configurações → Funil de vendas), sempre com ao menos uma aberta, uma ganha e uma perdida. Só se exclui etapa nunca usada.
+- **Funil**: forecast ponderado pela probabilidade da etapa, conversão entre etapas, taxa de ganho e ciclo médio, tudo derivado por consulta.
+- **Follow-ups** são tarefas ligadas à oportunidade: usam o player, o Kanban e os pontos de sempre.
+- Pontos por negócio ganho **não** existem ainda: todos os pontos vêm de tarefas.
+
 ## Stack
 
 - **TanStack Start** (React, server functions, rotas por arquivo) — sem API separada
@@ -127,10 +158,10 @@ src/
   lib/           auth.ts (Better Auth), auth-client.ts, permissions.ts, theme.ts, format.ts, useElapsed.ts
   server/        *.ts        server functions (uma por domínio)
                  *.core.ts   lógica transacional, testável sem HTTP
-                 roles.ts · time.ts · scoring.ts · levels.ts · stats.ts
-  routes/        login · change-password · invite/$token
-                 _app/       layout autenticado: index (Hoje), tasks, challenges, board, team, profile, settings, admin
-  components/    Ring, StatTile, Avatar, LevelTrack, PointsChart, TaskPlayer, CompletionModal, Modal (<dialog>), Shell, kanban/, Timeline
+                 roles.ts (papéis e capabilities) · audit.core.ts · time.ts · scoring.ts · levels.ts · stats.ts
+  routes/        login · forgot-password · reset-password · two-factor · change-password · invite/$token
+                 _app/       layout autenticado: index (Hoje), tasks, challenges, board, team, pipeline, leads, opportunities, profile, settings, admin
+  components/    Ring, StatTile, Avatar, LevelTrack, PointsChart, TaskPlayer, CompletionModal, Modal (<dialog>), Shell, kanban/, pipeline/, leads/, Notes, NotificationBell, Timeline
 docs/screenshots/
 ```
 
@@ -150,4 +181,4 @@ Cobrem: fórmula de pontuação, teto de tempo e gaps, detecção de ciclo, nív
 
 ## Fora de escopo (por enquanto)
 
-OAuth/SSO, reset de senha por email, notificações push, WebSockets (o feed usa polling de 15 s), testes e2e de UI.
+OAuth/SSO, anexos (falta decidir onde guardar os arquivos), pontos por negócio ganho, e-mail de notificação, notificações push, WebSockets (o feed e as notificações usam polling de 15 s), API pública e webhooks, testes e2e de UI.

@@ -3,7 +3,7 @@ import { db } from '#/db'
 import { taskDependencies, tasks } from '#/db/schema'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
-import { canManage, canSee, fail } from './roles'
+import { canManage, canSee, fail, forbid } from './roles'
 
 /** true se, seguindo "depends_on" a partir de `from`, chegamos em `target`. */
 export function reaches(edges: Array<{ taskId: string; dependsOnTaskId: string }>, from: string, target: string) {
@@ -42,7 +42,7 @@ export async function addDependencyFor(me: AuthCtx, data: { taskId: string; depe
     .where(and(eq(tasks.tenantId, me.tenantId), inArray(tasks.id, [data.taskId, data.dependsOnTaskId])))
   if (both.length !== 2) fail('Tarefa não encontrada')
   const [task, dependsOn] = [data.taskId, data.dependsOnTaskId].map((id) => both.find((t) => t.id === id)!)
-  if (!canManage(me, task!)) fail('Sem permissão')
+  if (!canManage(me, task!)) forbid()
   if (task!.teamId !== dependsOn!.teamId) fail('Dependência só entre tarefas da mesma equipe')
   // NOTE: arestas do tenant em memória; CTE recursiva se crescer
   const edges = await db
@@ -60,7 +60,7 @@ export async function addDependencyFor(me: AuthCtx, data: { taskId: string; depe
 
 export async function removeDependencyFor(me: AuthCtx, data: { taskId: string; dependsOnTaskId: string }) {
   const [task] = await db.select({ teamId: tasks.teamId }).from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
-  if (!task || !canManage(me, task)) fail('Sem permissão')
+  if (!task || !canManage(me, task)) forbid()
   await db.transaction(async (tx) => {
     const removed = await tx
       .delete(taskDependencies)
