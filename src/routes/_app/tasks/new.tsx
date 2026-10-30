@@ -1,17 +1,24 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
+import { z } from 'zod'
+import { getOpportunity } from '#/server/pipeline'
 import { createTask, getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/tasks/new')({
-  loader: () => getTaskFormOptions(),
+  validateSearch: z.object({ opportunityId: z.uuid().optional() }),
+  loaderDeps: ({ search }) => ({ opportunityId: search.opportunityId }),
+  loader: async ({ deps }) => {
+    const [options, detail] = await Promise.all([getTaskFormOptions(), deps.opportunityId ? getOpportunity({ data: { opportunityId: deps.opportunityId } }) : null])
+    return { ...options, opportunity: detail?.opportunity ?? null }
+  },
   component: NewTask,
 })
 
 function NewTask() {
-  const { teams, members } = Route.useLoaderData()
+  const { teams, members, opportunity } = Route.useLoaderData()
   const router = useRouter()
-  const [teamId, setTeamId] = React.useState(teams[0]?.id ?? '')
+  const [teamId, setTeamId] = React.useState(opportunity?.teamId ?? teams[0]?.id ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
 
@@ -28,6 +35,7 @@ function NewTask() {
           estimatedMinutes: Number(f.get('estimatedMinutes')),
           teamId,
           assignedToId: String(f.get('assignedToId')) || null,
+          opportunityId: opportunity?.id,
         },
       })
       await router.invalidate()
@@ -47,11 +55,12 @@ function NewTask() {
       <Link to="/" className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-50">
         <ArrowLeft className="h-4 w-4" /> Hoje
       </Link>
-      <h1 className="text-2xl font-bold tracking-tight">Nova tarefa</h1>
+      <h1 className="text-2xl font-bold tracking-tight">{opportunity ? 'Novo follow-up' : 'Nova tarefa'}</h1>
+      {opportunity && <p className="text-sm text-neutral-400">Oportunidade: <b className="text-neutral-200">{opportunity.title}</b></p>}
       <form onSubmit={onSubmit} className="card space-y-4">
         <div className="space-y-1">
           <label htmlFor="title">Título</label>
-          <input id="title" name="title" required minLength={2} maxLength={200} />
+          <input id="title" name="title" required minLength={2} maxLength={200} defaultValue={opportunity ? `Follow-up: ${opportunity.title}` : undefined} />
         </div>
         <div className="space-y-1">
           <label htmlFor="description">Descrição</label>
@@ -70,13 +79,13 @@ function NewTask() {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <label htmlFor="teamId">Equipe</label>
-            <select id="teamId" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+            <select id="teamId" value={teamId} onChange={(e) => setTeamId(e.target.value)} disabled={opportunity !== null}>
               {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
           <div className="space-y-1">
             <label htmlFor="assignedToId">Responsável</label>
-            <select id="assignedToId" name="assignedToId" defaultValue="">
+            <select id="assignedToId" name="assignedToId" defaultValue={opportunity?.ownerId ?? ''}>
               <option value="">Pool da equipe</option>
               {members.filter((m) => m.teamId === teamId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
