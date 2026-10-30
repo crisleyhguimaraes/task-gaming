@@ -135,6 +135,49 @@ describe('importar leads', () => {
     expect(result).toMatchObject({ created: 0, skipped: 1 })
   })
 
+  it('"atualizar" nunca sobrescreve lead de outra equipe do mesmo tenant: conta como pulado', async () => {
+    const tag = unique()
+    const [foreign] = await db
+      .insert(leads)
+      .values({ tenantId: f.tenant.id, teamId: otherTeamId, name: 'Da outra equipe', company: 'Empresa B', email: `${tag}@acme.com`, emailNormalized: `${tag}@acme.com` })
+      .returning()
+
+    const result = await run([{ name: 'Sobrescrita', company: 'Empresa A', email: `${tag}@acme.com`, phone: '(11) 97777-6666' }], { onDuplicate: 'update' })
+
+    expect(result).toMatchObject({ created: 0, updated: 0, skipped: 1 })
+    expect((await db.select().from(leads).where(eq(leads.id, foreign!.id)))[0]).toMatchObject({ name: 'Da outra equipe', company: 'Empresa B', phoneDigits: null })
+  })
+
+  it('nem o admin sobrescreve lead de outra equipe ao importar para a sua: só importando na equipe dona', async () => {
+    const tag = unique()
+    const [foreign] = await db.insert(leads).values({ tenantId: f.tenant.id, teamId: otherTeamId, name: 'Original B', email: `${tag}@acme.com`, emailNormalized: `${tag}@acme.com` }).returning()
+
+    const wrongTeam = await run([{ name: 'Novo nome', email: `${tag}@acme.com` }], { onDuplicate: 'update' }, admin)
+    const ownerTeam = await run([{ name: 'Novo nome', email: `${tag}@acme.com` }], { onDuplicate: 'update', teamId: otherTeamId }, admin)
+
+    expect(wrongTeam).toMatchObject({ updated: 0, skipped: 1 })
+    expect(ownerTeam).toMatchObject({ updated: 1, skipped: 0 })
+    expect((await db.select().from(leads).where(eq(leads.id, foreign!.id)))[0]!.name).toBe('Novo nome')
+  })
+
+  it('cada lead atualizado deixa um evento com o valor antigo e o novo; sem mudança, sem evento', async () => {
+    const tag = unique()
+    const [changed] = await db
+      .insert(leads)
+      .values({ tenantId: f.tenant.id, teamId: f.team.id, name: 'Antes', company: 'Mesma', email: `a-${tag}@acme.com`, emailNormalized: `a-${tag}@acme.com` })
+      .returning()
+    const [same] = await db
+      .insert(leads)
+      .values({ tenantId: f.tenant.id, teamId: f.team.id, name: 'Igual', email: `b-${tag}@acme.com`, emailNormalized: `b-${tag}@acme.com` })
+      .returning()
+
+    await run([{ name: 'Depois', email: `a-${tag}@acme.com`, company: 'Mesma' }, { name: 'Igual', email: `b-${tag}@acme.com` }], { onDuplicate: 'update' })
+
+    const eventsOf = (id: string) => db.select().from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.entityId, id)))
+    expect(await eventsOf(changed!.id)).toMatchObject([{ action: 'lead.updated', actorId: f.leader.userId, changes: { name: { from: 'Antes', to: 'Depois' } }, meta: { via: 'importação' } }])
+    expect(await eventsOf(same!.id)).toHaveLength(0)
+  })
+
   it('o mesmo contato em outro tenant não é duplicado e não é tocado', async () => {
     const tag = unique()
     const [foreign] = await db.insert(leads).values({ tenantId: other.tenant.id, teamId: other.team.id, name: 'Alheio', email: `${tag}@acme.com`, emailNormalized: `${tag}@acme.com` }).returning()
@@ -183,7 +226,7 @@ describe('importar leads', () => {
     expect(saved!.ownerId).toBeNull()
   })
 
-  it('audita um único evento com as contagens, sem eventos por lead', async () => {
+  it('audita o lote com um evento de contagens, mais um evento por lead atualizado', async () => {
     const t = await makeTenant(1)
     try {
       await db.insert(leads).values({ tenantId: t.tenant.id, teamId: t.team.id, name: 'Antigo', email: 'antigo@acme.com', emailNormalized: 'antigo@acme.com' })
@@ -196,8 +239,8 @@ describe('importar leads', () => {
       })
 
       const events = await db.select().from(auditEvents).where(eq(auditEvents.tenantId, t.tenant.id))
-      expect(events).toHaveLength(1)
-      expect(events[0]).toMatchObject({
+      expect(events.map((e) => e.action).sort()).toEqual(['lead.imported', 'lead.updated'])
+      expect(events.find((e) => e.action === 'lead.imported')).toMatchObject({
         action: 'lead.imported',
         entityType: 'team',
         entityId: t.team.id,

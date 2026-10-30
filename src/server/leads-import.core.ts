@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '#/db'
 import { leads } from '#/db/schema'
+import { diffFields } from '#/lib/audit'
 import type { ParsedLead, RawLeadRow } from '#/lib/leads'
 import { maxImportRows, parseLeadRow, takeLeastLoaded } from '#/lib/leads'
 import { recordAudit } from './audit.core'
@@ -20,11 +21,13 @@ export type ImportResult = {
   errors: Array<{ row: number; messages: Array<string> }>
 }
 
+type ExistingLead = { id: string; teamId: string }
+
 type RowPlan =
   | { row: number; kind: 'invalid'; messages: Array<string> }
   | { row: number; kind: 'repeated' }
   | { row: number; kind: 'new'; lead: ParsedLead }
-  | { row: number; kind: 'duplicate'; lead: ParsedLead; existingId: string }
+  | { row: number; kind: 'duplicate'; lead: ParsedLead; existing: ExistingLead }
 
 export type RowPreview = { row: number; status: RowPlan['kind']; messages: Array<string> }
 
@@ -35,19 +38,19 @@ const contactKeys = ({ emailNormalized, phoneDigits }: Contact) => [
   ...(phoneDigits ? [`phone:${phoneDigits}`] : []),
 ]
 
-/** Chave de contato -> id do lead mais antigo do tenant que a usa. */
+/** Chave de contato -> lead mais antigo do tenant que a usa, de qualquer equipe. */
 async function existingLeadsByContact(tx: Reader, tenantId: string, parsed: Array<ParsedLead>) {
   const emails = parsed.flatMap((lead) => (lead.emailNormalized ? [lead.emailNormalized] : []))
   const phones = parsed.flatMap((lead) => (lead.phoneDigits ? [lead.phoneDigits] : []))
-  const byContact = new Map<string, string>()
+  const byContact = new Map<string, ExistingLead>()
   const sameContact = or(emails.length > 0 ? inArray(leads.emailNormalized, emails) : undefined, phones.length > 0 ? inArray(leads.phoneDigits, phones) : undefined)
   if (!sameContact) return byContact
   const rows = await tx
-    .select({ id: leads.id, emailNormalized: leads.emailNormalized, phoneDigits: leads.phoneDigits })
+    .select({ id: leads.id, teamId: leads.teamId, emailNormalized: leads.emailNormalized, phoneDigits: leads.phoneDigits })
     .from(leads)
     .where(and(eq(leads.tenantId, tenantId), sameContact))
     .orderBy(asc(leads.createdAt), asc(leads.id))
-  for (const row of rows) for (const key of contactKeys(row)) if (!byContact.has(key)) byContact.set(key, row.id)
+  for (const row of rows) for (const key of contactKeys(row)) if (!byContact.has(key)) byContact.set(key, { id: row.id, teamId: row.teamId })
   return byContact
 }
 
@@ -62,8 +65,8 @@ async function planImport(tx: Reader, tenantId: string, rows: Array<RawLeadRow>)
     const keys = contactKeys(result.lead)
     if (keys.some((key) => seenInFile.has(key))) return { row, kind: 'repeated' }
     keys.forEach((key) => seenInFile.add(key))
-    const existingId = keys.map((key) => existing.get(key)).find((id) => id !== undefined)
-    return existingId ? { row, kind: 'duplicate', lead: result.lead, existingId } : { row, kind: 'new', lead: result.lead }
+    const found = keys.map((key) => existing.get(key)).find((lead) => lead !== undefined)
+    return found ? { row, kind: 'duplicate', lead: result.lead, existing: found } : { row, kind: 'new', lead: result.lead }
   })
 }
 
@@ -90,6 +93,27 @@ const refreshedFields = (lead: ParsedLead) => ({
   phoneDigits: lead.phoneDigits ?? undefined,
 })
 
+const auditedLeadFields = ['name', 'company', 'email', 'phone'] as const
+
+type DuplicatePlan = Extract<RowPlan, { kind: 'duplicate' }>
+type Writer = Pick<typeof db, 'select' | 'insert' | 'update'>
+
+/** Só chega aqui duplicado da equipe da importação: a autorização checou `canManage` para ela, não para as outras. */
+async function refreshDuplicates(tx: Writer, me: AuthCtx, teamId: string, duplicates: Array<DuplicatePlan>) {
+  if (duplicates.length === 0) return
+  const scope = (ids: Array<string>) => and(inArray(leads.id, ids), eq(leads.tenantId, me.tenantId), eq(leads.teamId, teamId))
+  const before = new Map((await tx.select().from(leads).where(scope(duplicates.map((d) => d.existing.id)))).map((lead) => [lead.id, lead]))
+  for (const { lead, existing } of duplicates) {
+    const previous = before.get(existing.id)
+    const [after] = await tx.update(leads).set(refreshedFields(lead)).where(scope([existing.id])).returning()
+    if (!previous || !after) continue
+    const changes = diffFields(previous, after, auditedLeadFields)
+    if (Object.keys(changes).length > 0) {
+      await recordAudit(tx, me, { action: 'lead.updated', entityType: 'lead', entityId: existing.id, changes, meta: { via: 'importação' } })
+    }
+  }
+}
+
 export async function importLeadsFor(me: AuthCtx, options: ImportOptions): Promise<ImportResult> {
   const { teamId, rows, onDuplicate, distribute } = options
   return db.transaction(async (tx) => {
@@ -104,17 +128,14 @@ export async function importLeadsFor(me: AuthCtx, options: ImportOptions): Promi
     )
     if (newLeads.length > 0) await tx.insert(leads).values(newLeads)
 
-    const duplicates = plans.filter((plan) => plan.kind === 'duplicate')
-    if (onDuplicate === 'update') {
-      for (const { lead, existingId } of duplicates) {
-        await tx.update(leads).set(refreshedFields(lead)).where(and(eq(leads.id, existingId), eq(leads.tenantId, me.tenantId)))
-      }
-    }
+    const duplicates = plans.filter((plan): plan is DuplicatePlan => plan.kind === 'duplicate')
+    const updatable = onDuplicate === 'update' ? duplicates.filter((plan) => plan.existing.teamId === teamId) : []
+    await refreshDuplicates(tx, me, teamId, updatable)
 
     const result: ImportResult = {
       created: newLeads.length,
-      updated: onDuplicate === 'update' ? duplicates.length : 0,
-      skipped: plans.filter((plan) => plan.kind === 'repeated').length + (onDuplicate === 'skip' ? duplicates.length : 0),
+      updated: updatable.length,
+      skipped: plans.filter((plan) => plan.kind === 'repeated').length + duplicates.length - updatable.length,
       errors: plans.flatMap((plan) => (plan.kind === 'invalid' ? [{ row: plan.row, messages: plan.messages }] : [])),
     }
     await recordAudit(tx, me, {
