@@ -23,6 +23,7 @@ export const createTask = createServerFn({ method: 'POST' })
       estimatedMinutes: z.number().int().min(1).max(24 * 60),
       teamId: z.uuid(),
       assignedToId: z.string().nullable(),
+      opportunityId: z.uuid().optional(),
     }),
   )
   .handler(({ data, context: { auth: me } }) => createTaskFor(me, data))

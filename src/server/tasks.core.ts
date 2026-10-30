@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Priority } from '#/db/schema'
-import { challenges, taskDependencies, taskTimeLogs, tasks, teams, users } from '#/db/schema'
+import { challenges, opportunities, taskDependencies, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
@@ -304,7 +304,24 @@ export async function taskPlayerState(taskId: string, userId: string) {
 
 export { capFor }
 
-export type NewTask = { title: string; description?: string; basePoints: number; estimatedMinutes: number; teamId: string; assignedToId: string | null }
+export type NewTask = {
+  title: string
+  description?: string
+  basePoints: number
+  estimatedMinutes: number
+  teamId: string
+  assignedToId: string | null
+  opportunityId?: string
+}
+
+async function assertOpportunityOfTeam(tx: Tx, me: AuthCtx, opportunityId: string | undefined, teamId: string) {
+  if (!opportunityId) return
+  const [o] = await tx
+    .select({ id: opportunities.id })
+    .from(opportunities)
+    .where(and(eq(opportunities.id, opportunityId), eq(opportunities.tenantId, me.tenantId), eq(opportunities.teamId, teamId)))
+  if (!o) fail('Oportunidade não encontrada')
+}
 
 async function assertAssigneeInTeam(tx: Tx, assignedToId: string | null, teamId: string) {
   if (!assignedToId) return
@@ -318,12 +335,14 @@ export async function createTaskFor(me: AuthCtx, data: NewTask) {
     const [team] = await tx.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
     if (!team) fail('Equipe não encontrada')
     await assertAssigneeInTeam(tx, data.assignedToId, data.teamId)
+    await assertOpportunityOfTeam(tx, me, data.opportunityId, data.teamId)
     const [task] = await tx
       .insert(tasks)
       .values({
         tenantId: me.tenantId,
         teamId: data.teamId,
         assignedToId: data.assignedToId,
+        opportunityId: data.opportunityId ?? null,
         createdById: me.userId,
         title: data.title,
         description: data.description || null,
@@ -335,7 +354,7 @@ export async function createTaskFor(me: AuthCtx, data: NewTask) {
       action: 'task.created',
       entityType: 'task',
       entityId: task!.id,
-      meta: { title: task!.title, teamId: task!.teamId, assignedToId: task!.assignedToId },
+      meta: { title: task!.title, teamId: task!.teamId, assignedToId: task!.assignedToId, opportunityId: task!.opportunityId },
     })
     return task!
   })
