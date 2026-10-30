@@ -1,13 +1,13 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, invitations, sessions, taskTimeLogs, tasks, users } from '#/db/schema'
+import { auditEvents, invitations, sessions, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { createInvitationCore } from './invitations.core'
 import type { AuthCtx } from './roles'
 import { ForbiddenError } from './roles'
 import { addAdmin, makeTenant } from './test-fixtures'
-import { deactivateUserCore, reactivateUserCore, updateUserCore } from './users.core'
+import { createUserFor, deactivateUserCore, reactivateUserCore, updateUserCore } from './users.core'
 
 let mine: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
@@ -206,3 +206,50 @@ describe('updateUserCore com user.update delegado a líder', () => {
     expect(u!.role).toBe('MEMBER')
   })
 })
+
+describe('criar usuário e convidar com a capability delegada a quem não é líder', () => {
+  const password = 'senha-forte-123'
+  const delegated: AuthCtx['capabilityOverrides'] = { 'user.create': true, 'invitation.manage': true }
+  const member = (): AuthCtx => ({ ...mine.members[0]!, capabilityOverrides: delegated })
+  const uniqueEmail = (label: string) => `${label}-${Math.random().toString(36).slice(2, 8)}@test.local`
+  let otherTeamId: string
+
+  beforeAll(async () => {
+    const [team] = await db.insert(teams).values({ tenantId: mine.tenant.id, name: 'Outra equipe' }).returning()
+    otherTeamId = team!.id
+  })
+
+  it('membro não cria administrador nem usuário de outra equipe', async () => {
+    const email = uniqueEmail('escalada')
+
+    await expect(createUserFor(member(), { name: 'X', email, password, teamId: mine.team.id, role: 'TENANT_ADMIN' })).rejects.toThrow(ForbiddenError)
+    await expect(createUserFor(member(), { name: 'X', email, password, teamId: otherTeamId, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+
+    expect(await db.select().from(users).where(eq(users.email, email))).toHaveLength(0)
+  })
+
+  it('membro cria membro da própria equipe', async () => {
+    const user = await createUserFor(member(), { name: 'Colega', email: uniqueEmail('colega'), password, teamId: mine.team.id, role: 'MEMBER' })
+
+    expect(await userRowOf(user.id)).toMatchObject({ role: 'MEMBER', teamId: mine.team.id })
+  })
+
+  it('membro não convida administrador nem para outra equipe', async () => {
+    const email = uniqueEmail('convite')
+
+    await expect(createInvitationCore(member(), { email, teamId: mine.team.id, role: 'TENANT_ADMIN' })).rejects.toThrow(ForbiddenError)
+    await expect(createInvitationCore(member(), { email, teamId: otherTeamId, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+
+    expect(await db.select().from(invitations).where(eq(invitations.email, email))).toHaveLength(0)
+  })
+
+  it('líder continua restrito do mesmo jeito', async () => {
+    const leader: AuthCtx = { ...mine.leader, capabilityOverrides: {} }
+
+    await expect(createUserFor(leader, { name: 'X', email: uniqueEmail('lider'), password, teamId: mine.team.id, role: 'TEAM_LEADER' })).rejects.toThrow(ForbiddenError)
+  })
+})
+
+async function userRowOf(id: string) {
+  return (await db.select().from(users).where(eq(users.id, id)))[0]!
+}

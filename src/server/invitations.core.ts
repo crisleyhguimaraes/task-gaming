@@ -7,7 +7,7 @@ import { auth } from '#/lib/auth'
 import { recordAudit } from './audit.core'
 import { sendMail } from './mail'
 import type { AuthCtx } from './roles'
-import { fail, isAdmin } from './roles'
+import { fail, forbid, isAdmin } from './roles'
 import { assertTeamInTenant } from './teams.core'
 
 export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
@@ -19,7 +19,7 @@ const newToken = () => randomBytes(32).toString('hex')
 const newExpiry = () => new Date(Date.now() + SEVEN_DAYS)
 
 export async function createInvitationCore(me: AuthCtx, data: { email: string; teamId: string | null; role: Exclude<Role, 'SUPER_ADMIN'> }) {
-  if (me.role === 'TEAM_LEADER' && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) fail('Líder só convida membros da própria equipe')
+  if (!isAdmin(me) && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) forbid()
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email))
   if (exists) fail('Este email já tem conta')

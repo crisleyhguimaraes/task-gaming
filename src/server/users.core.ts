@@ -81,7 +81,7 @@ export async function reactivateUserCore(me: AuthCtx, userId: string) {
 }
 
 export async function createUserFor(me: AuthCtx, data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole }) {
-  if (me.role === 'TEAM_LEADER' && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) fail('Líder só cria membros da própria equipe')
+  if (!isAdmin(me) && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) forbid()
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const { user } = await auth.api.createUser({
     body: {
