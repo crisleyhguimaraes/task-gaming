@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { teams, tenants, users } from '#/db/schema'
+import { insertDefaultStages } from './stages.core'
 import type { AuthCtx } from './roles'
 
 export async function addAdmin(f: { tenant: { id: string; slug: string }; team: { id: string } }): Promise<AuthCtx> {
@@ -13,6 +14,7 @@ export async function addAdmin(f: { tenant: { id: string; slug: string }; team: 
 export async function makeTenant(members = 2) {
   const suffix = Math.random().toString(36).slice(2, 8)
   const [tenant] = await db.insert(tenants).values({ name: `T ${suffix}`, slug: `t-${suffix}` }).returning()
+  await insertDefaultStages(db, tenant!.id)
   const [team] = await db.insert(teams).values({ tenantId: tenant!.id, name: 'Time' }).returning()
   const mk = async (role: AuthCtx['role'], i: number): Promise<AuthCtx> => {
     const id = `u-${suffix}-${i}`

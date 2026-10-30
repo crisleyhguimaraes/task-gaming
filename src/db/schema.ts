@@ -1,5 +1,8 @@
+import { sql } from 'drizzle-orm'
 import {
+  bigint,
   boolean,
+  check,
   date,
   doublePrecision,
   index,
@@ -32,6 +35,7 @@ export const tenants = pgTable('tenants', {
     .notNull()
     .default('America/Sao_Paulo'),
   dailyGoalPoints: integer('daily_goal_points').notNull().default(100),
+  requireTwoFactor: boolean('require_two_factor').notNull().default(false),
   createdAt: ts('created_at').defaultNow().notNull(),
 })
 
@@ -70,6 +74,7 @@ export const users = pgTable(
       .notNull(),
     teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
     mustChangePassword: boolean('must_change_password').notNull().default(false),
+    twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
   },
   (t) => [index('users_tenant_team_idx').on(t.tenantId, t.teamId)],
 )
@@ -172,6 +177,7 @@ export const tasks = pgTable(
     assignedToId: text('assigned_to_id').references(() => users.id, { onDelete: 'set null' }),
     createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     challengeId: uuid('challenge_id').references(() => challenges.id, { onDelete: 'set null' }),
+    opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
     title: varchar('title', { length: 200 }).notNull(),
     description: text('description'),
     basePoints: integer('base_points').notNull().default(10),
@@ -197,6 +203,7 @@ export const tasks = pgTable(
     index('tasks_tenant_assigned_idx').on(t.tenantId, t.assignedToId),
     index('tasks_team_assigned_idx').on(t.teamId, t.assignedToId),
     index('tasks_challenge_idx').on(t.challengeId),
+    index('tasks_opportunity_idx').on(t.opportunityId),
   ],
 )
 
@@ -287,4 +294,187 @@ export const auditEvents = pgTable(
     index('audit_tenant_created_idx').on(t.tenantId, t.createdAt.desc()),
     index('audit_entity_idx').on(t.tenantId, t.entityType, t.entityId),
   ],
+)
+
+// Tabela do plugin twoFactor do Better Auth (mapeada em lib/auth.ts).
+export const twoFactors = pgTable(
+  'two_factors',
+  {
+    id: text('id').primaryKey(),
+    secret: text('secret').notNull(),
+    backupCodes: text('backup_codes').notNull(),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    verified: boolean('verified').notNull().default(true),
+    failedVerificationCount: integer('failed_verification_count').notNull().default(0),
+    lockedUntil: ts('locked_until'),
+  },
+  (t) => [index('two_factors_secret_idx').on(t.secret), index('two_factors_user_idx').on(t.userId)],
+)
+
+// Ajuste por tenant sobre defaultGrants (roles.ts). Linha ausente = padrão de fábrica.
+export const roleCapabilities = pgTable(
+  'role_capabilities',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    role: roleEnum('role').notNull(),
+    capability: varchar('capability', { length: 40 }).notNull(),
+    allowed: boolean('allowed').notNull(),
+  },
+  (t) => [uniqueIndex('role_capabilities_unique_idx').on(t.tenantId, t.role, t.capability)],
+)
+
+export const stageKindEnum = pgEnum('stage_kind', ['open', 'won', 'lost'])
+export type StageKind = (typeof stageKindEnum.enumValues)[number]
+export const leadStatusEnum = pgEnum('lead_status', ['new', 'contacted', 'qualified', 'disqualified'])
+export type LeadStatus = (typeof leadStatusEnum.enumValues)[number]
+
+export const pipelineStages = pgTable(
+  'pipeline_stages',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 60 }).notNull(),
+    sortOrder: doublePrecision('sort_order').notNull(),
+    kind: stageKindEnum('kind').notNull().default('open'),
+    probability: integer('probability').notNull().default(0),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('pipeline_stages_tenant_idx').on(t.tenantId, t.sortOrder), check('pipeline_stages_probability', sql`${t.probability} between 0 and 100`)],
+)
+
+export const leads = pgTable(
+  'leads',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    // restrict: apagar equipe não pode levar o pipeline junto.
+    teamId: uuid('team_id')
+      .references(() => teams.id, { onDelete: 'restrict' })
+      .notNull(),
+    ownerId: text('owner_id').references(() => users.id, { onDelete: 'set null' }),
+    name: varchar('name', { length: 160 }).notNull(),
+    company: varchar('company', { length: 160 }),
+    email: varchar('email', { length: 200 }),
+    emailNormalized: varchar('email_normalized', { length: 200 }),
+    phone: varchar('phone', { length: 40 }),
+    phoneDigits: varchar('phone_digits', { length: 20 }),
+    source: varchar('source', { length: 40 }).notNull().default('outro'),
+    status: leadStatusEnum('status').notNull().default('new'),
+    createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').defaultNow().notNull(),
+    updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('leads_tenant_email_idx').on(t.tenantId, t.emailNormalized),
+    index('leads_tenant_phone_idx').on(t.tenantId, t.phoneDigits),
+    index('leads_team_owner_idx').on(t.teamId, t.ownerId),
+    index('leads_tenant_status_idx').on(t.tenantId, t.status),
+  ],
+)
+
+export const opportunities = pgTable(
+  'opportunities',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    teamId: uuid('team_id')
+      .references(() => teams.id, { onDelete: 'restrict' })
+      .notNull(),
+    leadId: uuid('lead_id')
+      .references(() => leads.id, { onDelete: 'restrict' })
+      .notNull(),
+    ownerId: text('owner_id').references(() => users.id, { onDelete: 'set null' }),
+    title: varchar('title', { length: 200 }).notNull(),
+    amountCents: bigint('amount_cents', { mode: 'number' }).notNull().default(0),
+    expectedCloseDate: date('expected_close_date'),
+    stageId: uuid('stage_id')
+      .references(() => pipelineStages.id, { onDelete: 'restrict' })
+      .notNull(),
+    closedAt: ts('closed_at'),
+    lostReason: text('lost_reason'),
+    sortOrder: doublePrecision('sort_order').notNull().default(0),
+    createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: ts('created_at').defaultNow().notNull(),
+    updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('opportunities_tenant_stage_idx').on(t.tenantId, t.stageId),
+    index('opportunities_team_owner_idx').on(t.teamId, t.ownerId),
+    index('opportunities_lead_idx').on(t.leadId),
+  ],
+)
+
+// Fonte do funil e do tempo em etapa; a trilha geral de quem fez o quê fica em audit_events.
+export const opportunityStageChanges = pgTable(
+  'opportunity_stage_changes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    opportunityId: uuid('opportunity_id')
+      .references(() => opportunities.id, { onDelete: 'cascade' })
+      .notNull(),
+    fromStageId: uuid('from_stage_id').references(() => pipelineStages.id, { onDelete: 'restrict' }),
+    toStageId: uuid('to_stage_id')
+      .references(() => pipelineStages.id, { onDelete: 'restrict' })
+      .notNull(),
+    changedById: text('changed_by_id').references(() => users.id, { onDelete: 'set null' }),
+    changedAt: ts('changed_at').defaultNow().notNull(),
+  },
+  (t) => [index('stage_changes_opportunity_idx').on(t.opportunityId, t.changedAt), index('stage_changes_tenant_idx').on(t.tenantId, t.changedAt)],
+)
+
+// Comentário em tarefa ou nota em lead/oportunidade: exatamente um alvo.
+export const notes = pgTable(
+  'notes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    authorId: text('author_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body').notNull(),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+    leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'cascade' }),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('notes_task_idx').on(t.taskId, t.createdAt),
+    index('notes_lead_idx').on(t.leadId, t.createdAt),
+    index('notes_opportunity_idx').on(t.opportunityId, t.createdAt),
+    check('notes_single_target', sql`num_nonnulls(${t.taskId}, ${t.leadId}, ${t.opportunityId}) = 1`),
+  ],
+)
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    type: varchar('type', { length: 60 }).notNull(),
+    entityType: varchar('entity_type', { length: 40 }).notNull(),
+    entityId: text('entity_id').notNull(),
+    payload: jsonb('payload').$type<AuditMeta>(),
+    readAt: ts('read_at'),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('notifications_user_idx').on(t.userId, t.readAt, t.createdAt)],
 )

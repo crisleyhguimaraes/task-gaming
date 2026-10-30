@@ -3,10 +3,12 @@ import { tenants } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
+import { insertDefaultStages } from './stages.core'
 
 export async function createTenantFor(me: AuthCtx, data: { name: string; slug: string; timezone: string }) {
   return db.transaction(async (tx) => {
     const [tenant] = await tx.insert(tenants).values(data).returning()
+    await insertDefaultStages(tx, tenant!.id)
     await recordAudit(tx, me, {
       action: 'tenant.created',
       entityType: 'tenant',

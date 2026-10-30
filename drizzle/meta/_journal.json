@@ -50,6 +50,13 @@
       "when": 1793384963765,
       "tag": "0006_lowly_richard_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793385504626,
+      "tag": "0007_glossy_morlun",
+      "breakpoints": true
     }
   ]
 }
