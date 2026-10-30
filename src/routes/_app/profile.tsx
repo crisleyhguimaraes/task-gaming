@@ -4,20 +4,25 @@ import * as React from 'react'
 import { Avatar } from '#/components/Avatar'
 import { Ring } from '#/components/Ring'
 import { StatTile } from '#/components/StatTile'
+import { TwoFactorCard } from '#/components/TwoFactorCard'
 import { appRoute } from '#/lib/app-route'
 import { authClient } from '#/lib/auth-client'
 import { roleLabel } from '#/lib/format'
 import { levelFor } from '#/server/levels'
 import { getProfile, updateProfile } from '#/server/profile'
+import { getTwoFactorStatus } from '#/server/two-factor'
 
 export const Route = createFileRoute('/_app/profile')({
-  loader: () => getProfile(),
+  loader: async () => {
+    const [profile, twoFactor] = await Promise.all([getProfile(), getTwoFactorStatus()])
+    return { profile, twoFactor }
+  },
   component: Profile,
 })
 
 function Profile() {
   const { me } = appRoute.useRouteContext()
-  const p = Route.useLoaderData()
+  const { profile: p, twoFactor } = Route.useLoaderData()
   const router = useRouter()
   const level = levelFor(p.totalPoints)
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null)
@@ -102,6 +107,8 @@ function Profile() {
         </div>
         <button className="btn-ghost">Alterar senha</button>
       </form>
+
+      <TwoFactorCard enabled={twoFactor.enabled} required={twoFactor.required} />
 
       <button onClick={signOut} className="btn-ghost w-full text-neutral-300">
         <LogOut className="h-4 w-4" /> Sair da conta

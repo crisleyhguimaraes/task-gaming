@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from '#/db/schema'
-import { capabilities, can, defaultGrants, requireCan } from './roles'
+import { ForbiddenError, capabilities, can, defaultGrants, forbid, requireCan } from './roles'
 
 const hierarchy: Array<Role> = ['MEMBER', 'TEAM_LEADER', 'TENANT_ADMIN', 'SUPER_ADMIN']
 const as = (role: Role) => ({ role })
@@ -39,5 +39,34 @@ describe('capabilities', () => {
   it('requireCan lança "Sem permissão" quando o papel não tem a capability', () => {
     expect(() => requireCan(as('MEMBER'), 'audit.read')).toThrow('Sem permissão')
     expect(() => requireCan(as('TENANT_ADMIN'), 'audit.read')).not.toThrow()
+  })
+})
+
+describe('overrides por tenant', () => {
+  it('sem override vale o padrão de fábrica', () => {
+    expect(can({ role: 'MEMBER', capabilityOverrides: {} }, 'export.csv')).toBe(false)
+    expect(can({ role: 'TEAM_LEADER', capabilityOverrides: {} }, 'export.csv')).toBe(true)
+  })
+
+  it('override concede o que o padrão nega', () => {
+    expect(can({ role: 'MEMBER', capabilityOverrides: { 'export.csv': true } }, 'export.csv')).toBe(true)
+  })
+
+  it('override revoga o que o padrão concede, e só a capability citada', () => {
+    const leader = { role: 'TEAM_LEADER', capabilityOverrides: { 'user.create': false } } as const
+
+    expect(can(leader, 'user.create')).toBe(false)
+    expect(can(leader, 'invitation.manage')).toBe(true)
+  })
+})
+
+describe('ForbiddenError', () => {
+  it('forbid lança ForbiddenError com a mensagem padrão', () => {
+    expect(() => forbid()).toThrow(ForbiddenError)
+    expect(() => forbid()).toThrow('Sem permissão')
+  })
+
+  it('requireCan nega com ForbiddenError, tipado para o middleware reconhecer', () => {
+    expect(() => requireCan(as('MEMBER'), 'audit.read')).toThrow(ForbiddenError)
   })
 })

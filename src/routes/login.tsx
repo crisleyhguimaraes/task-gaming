@@ -1,4 +1,4 @@
-import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
+import { Link, createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { Flame } from 'lucide-react'
 import * as React from 'react'
@@ -28,6 +28,7 @@ function Login() {
     const res = await authClient.signIn.email({ email: String(f.get('email')), password: String(f.get('password')) })
     setBusy(false)
     if (res.error) return setError('Email ou senha não conferem.')
+    if ('twoFactorRedirect' in res.data) return
     await router.invalidate()
     router.navigate({ to: '/' })
   }
@@ -56,6 +57,9 @@ function Login() {
         <button className="btn-primary w-full py-3" disabled={busy}>
           {busy ? 'Entrando…' : 'Entrar'}
         </button>
+        <Link to="/forgot-password" className="block text-center text-sm text-neutral-400 hover:text-neutral-200">
+          Esqueci minha senha
+        </Link>
       </form>
     </main>
   )

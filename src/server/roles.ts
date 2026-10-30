@@ -9,10 +9,24 @@ export type AuthCtx = {
   name: string
   impersonatedBy: string | null
   mustChangePassword: boolean
+  /** Ajustes do tenant sobre o papel do usuário (role_capabilities). Ausente = padrão de fábrica. */
+  capabilityOverrides?: CapabilityOverrides
 }
 
 export function fail(message: string): never {
   throw new Error(message)
+}
+
+/** Tipado para o authMiddleware distinguir negação de acesso de erro comum e auditar só a primeira. */
+export class ForbiddenError extends Error {
+  constructor() {
+    super('Sem permissão')
+    this.name = 'ForbiddenError'
+  }
+}
+
+export function forbid(): never {
+  throw new ForbiddenError()
 }
 
 const MANAGERS: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER']
@@ -43,12 +57,22 @@ export const defaultGrants = {
 export type Capability = keyof typeof defaultGrants
 export const capabilities = Object.keys(defaultGrants) as Array<Capability>
 
+export type CapabilityOverrides = Partial<Record<Capability, boolean>>
+
+/** Admin fica de fora de propósito: ninguém consegue trancar o próprio tenant. */
+export const overridableRoles = ['TEAM_LEADER', 'MEMBER'] as const satisfies ReadonlyArray<Role>
+export type OverridableRole = (typeof overridableRoles)[number]
+
+/** Delegar estas daria a um papel de tenant o controle da plataforma ou das próprias permissões. */
+export const nonDelegableCapabilities: ReadonlyArray<Capability> = ['tenant.manage', 'permissions.manage']
+
 const grantedTo = (capability: Capability): ReadonlyArray<Role> => defaultGrants[capability]
 
-export const can = (ctx: Pick<AuthCtx, 'role'>, capability: Capability) => grantedTo(capability).includes(ctx.role)
+export const can = (ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) =>
+  ctx.capabilityOverrides?.[capability] ?? grantedTo(capability).includes(ctx.role)
 
-export function requireCan(ctx: Pick<AuthCtx, 'role'>, capability: Capability) {
-  if (!can(ctx, capability)) fail('Sem permissão')
+export function requireCan(ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) {
+  if (!can(ctx, capability)) forbid()
 }
 
 export const isAdmin = (me: AuthCtx) => me.role === 'SUPER_ADMIN' || me.role === 'TENANT_ADMIN'

@@ -1,10 +1,11 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
-import { Mail, RotateCw, UserPlus, X } from 'lucide-react'
+import { Mail, RotateCw, UserCheck, UserPlus, UserX, X } from 'lucide-react'
 import * as React from 'react'
 import { roleLabel } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
 import { cancelInvitation, createInvitation, listInvitations, resendInvitation } from '#/server/invitations'
-import { createUser, listUsers, updateUser } from '#/server/users'
+import { can } from '#/server/roles'
+import { createUser, deactivateUser, listUsers, reactivateUser, updateUser } from '#/server/users'
 
 export const Route = createFileRoute('/_app/settings/users')({
   loader: async () => {
@@ -23,6 +24,8 @@ function Users() {
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const isLeader = me.role === 'TEAM_LEADER'
+  const canUpdate = can(me, 'user.update')
+  const canDeactivate = can(me, 'user.deactivate')
 
   async function act(fn: () => Promise<unknown>) {
     try {
@@ -32,6 +35,12 @@ function Users() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro')
     }
+  }
+
+  function onDeactivate(u: { id: string; name: string }) {
+    const reason = prompt(`Desativar ${u.name}? A pessoa perde o acesso agora e as tarefas abertas voltam ao pool.\n\nMotivo (opcional):`)
+    if (reason === null) return
+    act(() => deactivateUser({ data: { userId: u.id, reason: reason.trim() || undefined } }))
   }
 
   function onCreate(e: React.FormEvent<HTMLFormElement>) {
@@ -141,31 +150,43 @@ function Users() {
       <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
         {users.map((u) => (
           <li key={u.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <div className="truncate font-medium">{u.name}</div>
+            <div className={`min-w-0 ${u.banned ? 'opacity-60' : ''}`}>
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{u.name}</span>
+                {u.banned && <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[11px] font-medium text-rose-400">desativado</span>}
+              </div>
               <div className="truncate text-xs text-neutral-500">{u.email}</div>
             </div>
-            {isLeader ? (
-              <span className="text-xs text-neutral-400">{roleLabel[u.role]}</span>
-            ) : (
-              <div className="flex gap-2">
-                <select
-                  value={u.teamId ?? ''}
-                  onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: e.target.value || null, role: u.role as (typeof ROLES)[number] } }))}
-                  className="w-auto py-1 text-xs"
-                >
-                  <option value="">Sem equipe</option>
-                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-                <select
-                  value={u.role}
-                  onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: u.teamId, role: e.target.value as (typeof ROLES)[number] } }))}
-                  className="w-auto py-1 text-xs"
-                >
-                  {ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
-                </select>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {canUpdate ? (
+                <>
+                  <select
+                    value={u.teamId ?? ''}
+                    onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: e.target.value || null, role: u.role as (typeof ROLES)[number] } }))}
+                    className="w-auto py-1 text-xs"
+                  >
+                    <option value="">Sem equipe</option>
+                    {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <select
+                    value={u.role}
+                    onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: u.teamId, role: e.target.value as (typeof ROLES)[number] } }))}
+                    className="w-auto py-1 text-xs"
+                  >
+                    {ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
+                  </select>
+                </>
+              ) : (
+                <span className="text-xs text-neutral-400">{roleLabel[u.role]}</span>
+              )}
+              {canDeactivate && u.id !== me.userId && (
+                u.banned ? (
+                  <button onClick={() => act(() => reactivateUser({ data: { userId: u.id } }))} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-xp-400" title="Reativar"><UserCheck className="h-4 w-4" /></button>
+                ) : (
+                  <button onClick={() => onDeactivate(u)} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-rose-400" title="Desativar"><UserX className="h-4 w-4" /></button>
+                )
+              )}
+            </div>
           </li>
         ))}
       </ul>

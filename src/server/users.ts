@@ -6,7 +6,7 @@ import { teams, users } from '#/db/schema'
 import { authMiddleware, requireCan } from './auth-context'
 import type { AuthCtx } from './roles'
 import { isAdmin } from './roles'
-import { createUserFor, updateUserCore } from './users.core'
+import { createUserFor, deactivateUserCore, reactivateUserCore, updateUserCore } from './users.core'
 
 const assignableRoles = z.enum(['TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER'])
 
@@ -18,7 +18,7 @@ export const listUsers = createServerFn()
   .handler(async ({ context: { auth: me } }) => {
     requireCan(me, 'user.read')
     const list = await db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role, teamId: users.teamId, teamName: teams.name })
+      .select({ id: users.id, name: users.name, email: users.email, role: users.role, banned: users.banned, teamId: users.teamId, teamName: teams.name })
       .from(users)
       .leftJoin(teams, eq(teams.id, users.teamId))
       .where(and(scope(me), ne(users.role, 'SUPER_ADMIN')))
@@ -50,6 +50,16 @@ export const updateUser = createServerFn({ method: 'POST' })
     requireCan(me, 'user.update')
     return updateUserCore(me, data)
   })
+
+export const deactivateUser = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .validator(z.object({ userId: z.string(), reason: z.string().trim().max(200).optional() }))
+  .handler(({ data, context: { auth: me } }) => deactivateUserCore(me, data.userId, data.reason))
+
+export const reactivateUser = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .validator(z.object({ userId: z.string() }))
+  .handler(({ data, context: { auth: me } }) => reactivateUserCore(me, data.userId))
 
 export const clearMustChangePassword = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
