@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '#/db'
 import { taskDependencies, tasks } from '#/db/schema'
+import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail } from './roles'
 
@@ -49,7 +50,26 @@ export async function addDependencyFor(me: AuthCtx, data: { taskId: string; depe
     .from(taskDependencies)
     .where(eq(taskDependencies.tenantId, me.tenantId))
   if (reaches(edges, data.dependsOnTaskId, data.taskId)) fail('Dependência circular')
-  await db.insert(taskDependencies).values({ tenantId: me.tenantId, ...data }).onConflictDoNothing()
+  await db.transaction(async (tx) => {
+    const inserted = await tx.insert(taskDependencies).values({ tenantId: me.tenantId, ...data }).onConflictDoNothing().returning({ id: taskDependencies.id })
+    if (inserted.length) {
+      await recordAudit(tx, me, { action: 'dependency.added', entityType: 'task', entityId: data.taskId, meta: { dependsOnTaskId: data.dependsOnTaskId } })
+    }
+  })
+}
+
+export async function removeDependencyFor(me: AuthCtx, data: { taskId: string; dependsOnTaskId: string }) {
+  const [task] = await db.select({ teamId: tasks.teamId }).from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
+  if (!task || !canManage(me, task)) fail('Sem permissão')
+  await db.transaction(async (tx) => {
+    const removed = await tx
+      .delete(taskDependencies)
+      .where(and(eq(taskDependencies.tenantId, me.tenantId), eq(taskDependencies.taskId, data.taskId), eq(taskDependencies.dependsOnTaskId, data.dependsOnTaskId)))
+      .returning({ id: taskDependencies.id })
+    if (removed.length) {
+      await recordAudit(tx, me, { action: 'dependency.removed', entityType: 'task', entityId: data.taskId, meta: { dependsOnTaskId: data.dependsOnTaskId } })
+    }
+  })
 }
 
 /** Dependências de uma tarefa + candidatas do mesmo time (para o editor). */

@@ -3,12 +3,10 @@ import { and, asc, eq, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { teams, users } from '#/db/schema'
-import { auth } from '#/lib/auth'
 import { authMiddleware, requireRole } from './auth-context'
 import type { AuthCtx } from './roles'
 import { isAdmin } from './roles'
-import { assertTeamInTenant } from './teams.core'
-import { updateUserCore } from './users.core'
+import { createUserFor, updateUserCore } from './users.core'
 
 const assignableRoles = z.enum(['TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER'])
 
@@ -42,17 +40,7 @@ export const createUser = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data, context: { auth: me } }) => {
     requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
-    if (me.role === 'TEAM_LEADER' && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) throw new Error('Líder só cria membros da própria equipe')
-    await assertTeamInTenant(db, me.tenantId, data.teamId)
-    await auth.api.createUser({
-      body: {
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        role: data.role,
-        data: { tenantId: me.tenantId, teamId: data.teamId ?? undefined, mustChangePassword: true },
-      },
-    })
+    await createUserFor(me, data)
   })
 
 export const updateUser = createServerFn({ method: 'POST' })

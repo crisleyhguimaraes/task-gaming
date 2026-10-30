@@ -4,6 +4,7 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -189,6 +190,7 @@ export const tasks = pgTable(
     needsValidation: boolean('needs_validation').notNull().default(false),
     manualFinish: boolean('manual_finish').notNull().default(false),
     createdAt: ts('created_at').defaultNow().notNull(),
+    updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
   },
   (t) => [
     index('tasks_tenant_status_idx').on(t.tenantId, t.status),
@@ -257,4 +259,32 @@ export const invitations = pgTable(
     createdAt: ts('created_at').defaultNow().notNull(),
   },
   (t) => [index('invitations_tenant_idx').on(t.tenantId, t.acceptedAt)],
+)
+
+export type AuditValue = string | number | boolean | null
+export type AuditChanges = Record<string, { from: AuditValue; to: AuditValue }>
+export type AuditMeta = Record<string, AuditValue>
+
+export const auditEvents = pgTable(
+  'audit_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    // Sem FK: o evento precisa sobreviver à exclusão do usuário.
+    actorId: text('actor_id'),
+    actorName: text('actor_name').notNull(),
+    impersonatedBy: text('impersonated_by'),
+    action: varchar('action', { length: 60 }).notNull(),
+    entityType: varchar('entity_type', { length: 40 }).notNull(),
+    entityId: text('entity_id').notNull(),
+    changes: jsonb('changes').$type<AuditChanges>(),
+    meta: jsonb('meta').$type<AuditMeta>(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('audit_tenant_created_idx').on(t.tenantId, t.createdAt.desc()),
+    index('audit_entity_idx').on(t.tenantId, t.entityType, t.entityId),
+  ],
 )

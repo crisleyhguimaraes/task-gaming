@@ -3,7 +3,7 @@ import { and, asc, count, desc, eq, min, sql, sum } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { challenges, tasks, teams, users } from '#/db/schema'
-import { validAttempt, listChallengesFor  } from './challenges.core'
+import { archiveChallengeFor, createChallengeFor, listChallengesFor, validAttempt } from './challenges.core'
 import { authMiddleware } from './auth-context'
 import { canManage, fail, isAdmin } from './roles'
 import { attemptChallengeFor } from './tasks.core'
@@ -23,24 +23,7 @@ export const createChallenge = createServerFn({ method: 'POST' })
       teamId: z.uuid(),
     }),
   )
-  .handler(async ({ data, context: { auth: me } }) => {
-    if (!isAdmin(me) && data.teamId !== me.teamId) fail('Você só cria desafios para a sua equipe')
-    const [team] = await db.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
-    if (!team) fail('Equipe não encontrada')
-    const [c] = await db
-      .insert(challenges)
-      .values({
-        tenantId: me.tenantId,
-        teamId: data.teamId,
-        createdById: me.userId,
-        title: data.title,
-        description: data.description || null,
-        basePoints: data.basePoints,
-        estimatedSeconds: data.estimatedMinutes * 60,
-      })
-      .returning()
-    return c!
-  })
+  .handler(({ data, context: { auth: me } }) => createChallengeFor(me, data))
 
 export const getChallenge = createServerFn()
   .middleware([authMiddleware])
@@ -84,9 +67,4 @@ export const attemptChallenge = createServerFn({ method: 'POST' })
 export const archiveChallenge = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ challengeId: z.uuid() }))
-  .handler(async ({ data, context: { auth: me } }) => {
-    const [c] = await db.select().from(challenges).where(and(eq(challenges.id, data.challengeId), eq(challenges.tenantId, me.tenantId)))
-    if (!c) fail('Desafio não encontrado')
-    if (c.createdById !== me.userId && !canManage(me, c)) fail('Sem permissão')
-    await db.update(challenges).set({ archivedAt: new Date() }).where(eq(challenges.id, c.id))
-  })
+  .handler(({ data, context: { auth: me } }) => archiveChallengeFor(me, data.challengeId))

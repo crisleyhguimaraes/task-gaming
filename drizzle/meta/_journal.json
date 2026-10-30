@@ -43,6 +43,13 @@
       "when": 1789728913529,
       "tag": "0005_wide_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793384963765,
+      "tag": "0006_lowly_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

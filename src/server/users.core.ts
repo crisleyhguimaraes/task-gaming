@@ -2,6 +2,9 @@ import { and, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Role } from '#/db/schema'
 import { taskTimeLogs, tasks, users } from '#/db/schema'
+import { auth } from '#/lib/auth'
+import { diffFields } from '#/lib/audit'
+import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { fail } from './roles'
 import { assertTeamInTenant } from './teams.core'
@@ -31,6 +34,24 @@ export async function updateUserCore(me: AuthCtx, data: { userId: string; teamId
         .set({ assignedToId: null, status: 'pending' })
         .where(and(eq(tasks.assignedToId, u.id), inArray(tasks.status, ['pending', 'in_progress', 'paused'])))
     }
-    await tx.update(users).set({ teamId: data.teamId, role: data.role }).where(eq(users.id, u.id))
+    const [updated] = await tx.update(users).set({ teamId: data.teamId, role: data.role }).where(eq(users.id, u.id)).returning()
+    const changes = diffFields(u, updated!, ['role', 'teamId'])
+    if (Object.keys(changes).length) await recordAudit(tx, me, { action: 'user.updated', entityType: 'user', entityId: u.id, changes })
   })
+}
+
+export async function createUserFor(me: AuthCtx, data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole }) {
+  if (me.role === 'TEAM_LEADER' && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) fail('Líder só cria membros da própria equipe')
+  await assertTeamInTenant(db, me.tenantId, data.teamId)
+  const { user } = await auth.api.createUser({
+    body: {
+      name: data.name,
+      email: data.email,
+      password: data.password,
+      role: data.role,
+      data: { tenantId: me.tenantId, teamId: data.teamId ?? undefined, mustChangePassword: true },
+    },
+  })
+  await recordAudit(db, me, { action: 'user.created', entityType: 'user', entityId: user.id, meta: { email: data.email, role: data.role, teamId: data.teamId } })
+  return user
 }

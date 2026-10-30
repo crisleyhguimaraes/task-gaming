@@ -1,10 +1,12 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { createAuthMiddleware, getSessionFromCtx, isAPIError } from 'better-auth/api'
 import { admin } from 'better-auth/plugins'
 import { tanstackStartCookies } from 'better-auth/tanstack-start'
 import { and, eq, ne } from 'drizzle-orm'
 import { db } from '#/db'
 import { accounts, sessions, users, verifications } from '#/db/schema'
+import { recordImpersonationStopped, recordLoginFailed, recordSessionStarted } from '#/server/auth-events.core'
 import { ac, roles } from './permissions'
 
 export const auth = betterAuth({
@@ -30,9 +32,22 @@ export const auth = betterAuth({
           await db
             .delete(sessions)
             .where(and(eq(sessions.userId, s.userId), ne(sessions.id, s.id)))
+          await recordSessionStarted(s)
         },
       },
     },
+  },
+  hooks: {
+    // Ainda com a sessão impersonada de pé: depois do endpoint ela já foi apagada.
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/admin/stop-impersonating') return
+      const current = await getSessionFromCtx(ctx)
+      if (current) await recordImpersonationStopped(current.session)
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== '/sign-in/email' || !isAPIError(ctx.context.returned)) return
+      await recordLoginFailed(String(ctx.body?.email ?? ''))
+    }),
   },
   plugins: [admin({ ac, roles, adminRoles: ['SUPER_ADMIN'], defaultRole: 'MEMBER' }), tanstackStartCookies()],
 })

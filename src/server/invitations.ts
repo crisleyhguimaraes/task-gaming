@@ -1,16 +1,10 @@
-import { randomBytes } from 'node:crypto'
 import { createServerFn } from '@tanstack/react-start'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { invitations, teams } from '#/db/schema'
 import { authMiddleware, requireRole } from './auth-context'
-import type { AuthCtx } from './roles'
-import { isAdmin } from './roles'
-import { SEVEN_DAYS, acceptInvitationCore, createInvitationCore, sendInvitation as send, validInvitation } from './invitations.core'
-
-const scope = (me: AuthCtx) =>
-  isAdmin(me) ? eq(invitations.tenantId, me.tenantId) : and(eq(invitations.tenantId, me.tenantId), eq(invitations.teamId, me.teamId ?? ''))
+import { acceptInvitationCore, cancelInvitationFor, createInvitationCore, invitationScope, resendInvitationFor, validInvitation } from './invitations.core'
 
 export const listInvitations = createServerFn()
   .middleware([authMiddleware])
@@ -20,7 +14,7 @@ export const listInvitations = createServerFn()
       .select({ id: invitations.id, email: invitations.email, role: invitations.role, teamName: teams.name, expiresAt: invitations.expiresAt, createdAt: invitations.createdAt })
       .from(invitations)
       .leftJoin(teams, eq(teams.id, invitations.teamId))
-      .where(and(scope(me), isNull(invitations.acceptedAt)))
+      .where(and(invitationScope(me), isNull(invitations.acceptedAt)))
       .orderBy(desc(invitations.createdAt))
   })
 
@@ -35,23 +29,17 @@ export const createInvitation = createServerFn({ method: 'POST' })
 export const resendInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ invitationId: z.uuid() }))
-  .handler(async ({ data, context: { auth: me } }) => {
+  .handler(({ data, context: { auth: me } }) => {
     requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
-    const [inv] = await db
-      .update(invitations)
-      .set({ token: randomBytes(32).toString('hex'), expiresAt: new Date(Date.now() + SEVEN_DAYS) })
-      .where(and(eq(invitations.id, data.invitationId), scope(me), isNull(invitations.acceptedAt)))
-      .returning()
-    if (!inv) throw new Error('Convite não encontrado')
-    await send(inv)
+    return resendInvitationFor(me, data.invitationId)
   })
 
 export const cancelInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(z.object({ invitationId: z.uuid() }))
-  .handler(async ({ data, context: { auth: me } }) => {
+  .handler(({ data, context: { auth: me } }) => {
     requireRole(me, 'SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER')
-    await db.delete(invitations).where(and(eq(invitations.id, data.invitationId), scope(me), isNull(invitations.acceptedAt)))
+    return cancelInvitationFor(me, data.invitationId)
   })
 
 // --- Públicas (sem sessão) --------------------------------------------------

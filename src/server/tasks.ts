@@ -5,7 +5,7 @@ import { db } from '#/db'
 import { taskDependencies, tasks, teams, users } from '#/db/schema'
 import { authMiddleware } from './auth-context'
 import { canManage, canSee, fail, isAdmin } from './roles'
-import { activeTaskFor, cancelTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskPlayerState, validatePointsFor } from './tasks.core'
+import { activeTaskFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
 import { capFor } from './time'
 import { heroStats, pointsByDay, ranking, streak, teamFeed, tenantSettings, todayProgress, totalPoints } from './stats'
 import { listChallengesFor } from './challenges.core'
@@ -25,29 +25,7 @@ export const createTask = createServerFn({ method: 'POST' })
       assignedToId: z.string().nullable(),
     }),
   )
-  .handler(async ({ data, context: { auth: me } }) => {
-    if (!canManage(me, { teamId: data.teamId })) fail('Sem permissão')
-    const [team] = await db.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
-    if (!team) fail('Equipe não encontrada')
-    if (data.assignedToId) {
-      const [u] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, data.assignedToId), eq(users.teamId, data.teamId)))
-      if (!u) fail('Responsável não pertence à equipe')
-    }
-    const [task] = await db
-      .insert(tasks)
-      .values({
-        tenantId: me.tenantId,
-        teamId: data.teamId,
-        assignedToId: data.assignedToId,
-        createdById: me.userId,
-        title: data.title,
-        description: data.description || null,
-        basePoints: data.basePoints,
-        estimatedSeconds: data.estimatedMinutes * 60,
-      })
-      .returning()
-    return task!
-  })
+  .handler(({ data, context: { auth: me } }) => createTaskFor(me, data))
 
 export const getTask = createServerFn()
   .middleware([authMiddleware])
@@ -107,8 +85,8 @@ export const cancelTask = createServerFn({ method: 'POST' })
 
 export const validatePoints = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(byId.extend({ approve: z.boolean() }))
-  .handler(({ data, context }) => validatePointsFor(context.auth, data.taskId, data.approve))
+  .validator(byId.extend({ approve: z.boolean(), reason: z.string().trim().max(300).optional() }))
+  .handler(({ data, context }) => validatePointsFor(context.auth, data.taskId, data.approve, data.reason))
 
 /** Página Equipe: ranking (time ou tenant) + feed do time. */
 export const getTeam = createServerFn()
@@ -281,28 +259,4 @@ export const updateTask = createServerFn({ method: 'POST' })
       assignedToId: z.string().nullable(),
     }),
   )
-  .handler(async ({ data, context: { auth: me } }) => {
-    const [task] = await db.select().from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
-    if (!task || !canManage(me, task)) fail('Sem permissão')
-    if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa encerrada não pode ser editada')
-    if (data.assignedToId) {
-      const [u] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, data.assignedToId), eq(users.teamId, task.teamId)))
-      if (!u) fail('Responsável não pertence à equipe')
-    }
-    if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')
-    if (data.scheduledStart && data.scheduledEnd && data.scheduledEnd < data.scheduledStart) fail('Fim do cronograma antes do início')
-    await db
-      .update(tasks)
-      .set({
-        title: data.title,
-        description: data.description || null,
-        basePoints: data.basePoints,
-        estimatedSeconds: data.estimatedMinutes * 60,
-        priority: data.priority,
-        dueDate: data.dueDate,
-        scheduledStart: data.scheduledStart,
-        scheduledEnd: data.scheduledEnd,
-        assignedToId: data.assignedToId,
-      })
-      .where(eq(tasks.id, task.id))
-  })
+  .handler(({ data, context: { auth: me } }) => updateTaskFor(me, data))

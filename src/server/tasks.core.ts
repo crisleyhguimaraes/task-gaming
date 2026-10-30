@@ -1,6 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
-import { challenges, taskDependencies, taskTimeLogs, tasks } from '#/db/schema'
+import type { Priority } from '#/db/schema'
+import { challenges, taskDependencies, taskTimeLogs, tasks, teams, users } from '#/db/schema'
+import { diffFields } from '#/lib/audit'
+import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail, isAdmin } from './roles'
 import { scoreTask } from './scoring'
@@ -180,7 +183,7 @@ export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = n
     if (task.assignedToId && task.assignedToId !== me.userId && !canManage(me, task)) fail('Sem permissão')
     if (!task.assignedToId && !canManage(me, task) && task.teamId !== me.teamId) fail('Sem permissão')
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
-    await tx
+    const [updated] = await tx
       .update(tasks)
       .set({
         status: 'finished',
@@ -194,6 +197,13 @@ export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = n
         manualFinish: true,
       })
       .where(eq(tasks.id, taskId))
+      .returning()
+    await recordAudit(tx, me, {
+      action: 'task.finished_manually',
+      entityType: 'task',
+      entityId: taskId,
+      changes: diffFields(task, updated!, ['status', 'assignedToId', 'awardedPoints']),
+    })
     return {
       taskId,
       taskTitle: task.title,
@@ -221,6 +231,12 @@ export async function returnToPoolFor(me: AuthCtx, taskId: string, now = new Dat
     if (task.challengeId) fail('Tentativa de desafio não vai pro pool')
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'pending', assignedToId: null }).where(eq(tasks.id, taskId)).returning()
+    await recordAudit(tx, me, {
+      action: 'task.returned_to_pool',
+      entityType: 'task',
+      entityId: taskId,
+      changes: diffFields(task, updated!, ['status', 'assignedToId']),
+    })
     return updated!
   })
 }
@@ -233,12 +249,18 @@ export async function cancelTaskFor(me: AuthCtx, taskId: string, now = new Date(
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa já encerrada')
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'cancelled', awardedPoints: null }).where(eq(tasks.id, taskId)).returning()
+    await recordAudit(tx, me, {
+      action: 'task.cancelled',
+      entityType: 'task',
+      entityId: taskId,
+      changes: diffFields(task, updated!, ['status', 'awardedPoints']),
+    })
     return updated!
   })
 }
 
 /** Aprova ou rejeita pontos retidos (gestor). */
-export async function validatePointsFor(me: AuthCtx, taskId: string, approve: boolean) {
+export async function validatePointsFor(me: AuthCtx, taskId: string, approve: boolean, reason?: string) {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (!canManage(me, task)) fail('Sem permissão')
@@ -248,6 +270,13 @@ export async function validatePointsFor(me: AuthCtx, taskId: string, approve: bo
       .set({ needsValidation: false, awardedPoints: approve ? task.awardedPoints : 0 })
       .where(eq(tasks.id, taskId))
       .returning()
+    await recordAudit(tx, me, {
+      action: approve ? 'task.points_validated' : 'task.points_rejected',
+      entityType: 'task',
+      entityId: taskId,
+      changes: diffFields(task, updated!, ['needsValidation', 'awardedPoints']),
+      meta: reason ? { reason } : undefined,
+    })
     return updated!
   })
 }
@@ -274,3 +303,78 @@ export async function taskPlayerState(taskId: string, userId: string) {
 }
 
 export { capFor }
+
+export type NewTask = { title: string; description?: string; basePoints: number; estimatedMinutes: number; teamId: string; assignedToId: string | null }
+
+async function assertAssigneeInTeam(tx: Tx, assignedToId: string | null, teamId: string) {
+  if (!assignedToId) return
+  const [u] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, assignedToId), eq(users.teamId, teamId)))
+  if (!u) fail('Responsável não pertence à equipe')
+}
+
+export async function createTaskFor(me: AuthCtx, data: NewTask) {
+  if (!canManage(me, { teamId: data.teamId })) fail('Sem permissão')
+  return db.transaction(async (tx) => {
+    const [team] = await tx.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
+    if (!team) fail('Equipe não encontrada')
+    await assertAssigneeInTeam(tx, data.assignedToId, data.teamId)
+    const [task] = await tx
+      .insert(tasks)
+      .values({
+        tenantId: me.tenantId,
+        teamId: data.teamId,
+        assignedToId: data.assignedToId,
+        createdById: me.userId,
+        title: data.title,
+        description: data.description || null,
+        basePoints: data.basePoints,
+        estimatedSeconds: data.estimatedMinutes * 60,
+      })
+      .returning()
+    await recordAudit(tx, me, {
+      action: 'task.created',
+      entityType: 'task',
+      entityId: task!.id,
+      meta: { title: task!.title, teamId: task!.teamId, assignedToId: task!.assignedToId },
+    })
+    return task!
+  })
+}
+
+export type TaskEdit = Omit<NewTask, 'teamId'> & {
+  taskId: string
+  priority: Priority
+  dueDate: string | null
+  scheduledStart: string | null
+  scheduledEnd: string | null
+}
+
+const auditedTaskFields = ['title', 'description', 'basePoints', 'estimatedSeconds', 'priority', 'dueDate', 'scheduledStart', 'scheduledEnd', 'assignedToId'] as const
+
+export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
+  await db.transaction(async (tx) => {
+    const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
+    if (!task || !canManage(me, task)) fail('Sem permissão')
+    if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa encerrada não pode ser editada')
+    await assertAssigneeInTeam(tx, data.assignedToId, task.teamId)
+    if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')
+    if (data.scheduledStart && data.scheduledEnd && data.scheduledEnd < data.scheduledStart) fail('Fim do cronograma antes do início')
+    const [updated] = await tx
+      .update(tasks)
+      .set({
+        title: data.title,
+        description: data.description || null,
+        basePoints: data.basePoints,
+        estimatedSeconds: data.estimatedMinutes * 60,
+        priority: data.priority,
+        dueDate: data.dueDate,
+        scheduledStart: data.scheduledStart,
+        scheduledEnd: data.scheduledEnd,
+        assignedToId: data.assignedToId,
+      })
+      .where(eq(tasks.id, task.id))
+      .returning()
+    const changes = diffFields(task, updated!, auditedTaskFields)
+    if (Object.keys(changes).length) await recordAudit(tx, me, { action: 'task.updated', entityType: 'task', entityId: task.id, changes })
+  })
+}

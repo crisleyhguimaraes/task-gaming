@@ -3,8 +3,8 @@ import { asc, count, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { teams, tenants, users } from '#/db/schema'
-import { auth } from '#/lib/auth'
 import { authMiddleware, requireRole } from './auth-context'
+import { createTenantAdminFor, createTenantFor } from './tenants.core'
 
 export const listTenants = createServerFn()
   .middleware([authMiddleware])
@@ -33,10 +33,9 @@ export const createTenant = createServerFn({ method: 'POST' })
       timezone: z.string().trim().min(3).max(64),
     }),
   )
-  .handler(async ({ data, context }) => {
+  .handler(({ data, context }) => {
     requireRole(context.auth, 'SUPER_ADMIN')
-    const [t] = await db.insert(tenants).values(data).returning()
-    return t
+    return createTenantFor(context.auth, data)
   })
 
 export const getTenant = createServerFn()
@@ -67,13 +66,5 @@ export const createTenantAdmin = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data, context }) => {
     requireRole(context.auth, 'SUPER_ADMIN')
-    await auth.api.createUser({
-      body: {
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        role: 'TENANT_ADMIN',
-        data: { tenantId: data.tenantId, mustChangePassword: true },
-      },
-    })
+    await createTenantAdminFor(context.auth, data)
   })
