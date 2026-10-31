@@ -7,10 +7,10 @@ import { NO_BOARD } from '#/lib/boards'
 import { authMiddleware } from './auth-context'
 import { canManage, canSee, fail, isAdmin } from './roles'
 import { teamsOfUser } from './team-members.core'
-import { activeTaskFor, boardMembersFor, capOfTask, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
+import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskDetailFor, taskFormOptionsFor, taskListWhere, updateTaskFor, validatePointsFor } from './tasks.core'
 import { goalOfDay, heroStats, poolOf, pointsByDay, streak, teamFeed, teamPageFor, tenantSettings, todayKey, todayProgress, totalPoints } from './stats'
 import { listChallengesFor } from './challenges.core'
-import { blockedSet, openBlockers } from './dependencies.core'
+import { blockedSet } from './dependencies.core'
 
 const byId = z.object({ taskId: z.uuid() })
 
@@ -33,25 +33,7 @@ export const createTask = createServerFn({ method: 'POST' })
 export const getTask = createServerFn()
   .middleware([authMiddleware])
   .validator(byId)
-  .handler(async ({ data, context: { auth: me } }) => {
-    const [row] = await db
-      .select({ task: tasks, assigneeName: users.name })
-      .from(tasks)
-      .leftJoin(users, eq(users.id, tasks.assignedToId))
-      .where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
-    if (!row || !canSee(me, row.task)) fail('Tarefa não encontrada')
-    const player = await taskPlayerState(row.task.id, me.userId)
-    const blockedBy = await openBlockers(db, [row.task.id])
-    return {
-      ...row.task,
-      assigneeName: row.assigneeName,
-      blockedBy,
-      ...player,
-      cap: capOfTask(row.task),
-      isMine: row.task.assignedToId === me.userId,
-      canManage: canManage(me, row.task),
-    }
-  })
+  .handler(({ data, context: { auth: me } }) => taskDetailFor(me, data.taskId))
 
 export const startTask = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

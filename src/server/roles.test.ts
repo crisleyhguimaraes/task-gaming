@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { teamRoles } from '#/lib/access'
 import type { Role, TeamRole } from '#/lib/access'
 import type { AuthCtx } from './roles'
-import { ForbiddenError, canAccessTeam, canManage, canSee, capabilities, capabilityScope, can, defaultGrants, defaultTeamId, forbid, isManager, isMemberOf, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
+import { ForbiddenError, canAccessTeam, canManage, canSee, capabilities, capabilityScope, can, canManageWith, defaultGrants, defaultTeamId, forbid, isManager, isMemberOf, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
 
 const A = 'team-a'
 const B = 'team-b'
@@ -46,7 +46,16 @@ describe('capabilities', () => {
 
   it('membro comum não tem nenhuma capability de gestão', () => {
     const memberCaps = capabilities.filter((c) => can(as('MEMBER'), c))
-    expect(memberCaps.sort()).toEqual(['lead.write', 'opportunity.write'])
+    expect(memberCaps.sort()).toEqual(['challenge.write', 'lead.write', 'opportunity.write'])
+  })
+
+  it('compartilhar e validar desafio são dos gestores, por equipe; criar é de todos', () => {
+    expect(hierarchy.filter((r) => can(as(r), 'challenge.write'))).toEqual(hierarchy)
+    for (const capability of ['challenge.share', 'challenge.validate'] as const) {
+      expect(hierarchy.filter((r) => can(as(r), capability)), capability).toEqual(['LEADER', 'TENANT_ADMIN', 'SUPER_ADMIN'])
+      expect(capabilityScope[capability], capability).toBe('team')
+    }
+    expect(capabilityScope['challenge.write']).toBe('team')
   })
 
   it('toda capability tem ao menos um papel concedido', () => {
@@ -259,5 +268,29 @@ describe('capabilities de metas, pontuações e boards', () => {
     expect(can(leader, 'board.manage', A)).toBe(true)
     expect(can(leader, 'board.manage', B)).toBe(false)
     expect(can(as('MEMBER'), 'board.manage')).toBe(false)
+  })
+})
+
+describe('canManageWith: gerencia a equipe e tem a capability nela', () => {
+  const leaderOfAMemberOfB = (overrides: AuthCtx['capabilityOverrides'] = {}) => person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']], overrides)
+
+  it('o líder vale na equipe que lidera e não na que só integra', () => {
+    expect(canManageWith(leaderOfAMemberOfB(), 'challenge.share', A)).toBe(true)
+    expect(canManageWith(leaderOfAMemberOfB(), 'challenge.share', B)).toBe(false)
+  })
+
+  it('admin vale em qualquer equipe, mesmo sem vínculo', () => {
+    expect(canManageWith(person('TENANT_ADMIN', []), 'challenge.validate', A)).toBe(true)
+  })
+
+  it('a capability sozinha não basta: dada ao membro por override, ele continua sem gerenciar', () => {
+    const member = person('MEMBER', [[A, 'MEMBER']], { MEMBER: { 'challenge.validate': true } })
+
+    expect(can(member, 'challenge.validate', A)).toBe(true)
+    expect(canManageWith(member, 'challenge.validate', A)).toBe(false)
+  })
+
+  it('e gerenciar sozinho não basta: o override que tira a capability do líder vale', () => {
+    expect(canManageWith(leaderOfAMemberOfB({ LEADER: { 'challenge.validate': false } }), 'challenge.validate', A)).toBe(false)
   })
 })

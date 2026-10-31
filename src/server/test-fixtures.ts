@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#/db'
-import { teamMembers, teams, tenants, users } from '#/db/schema'
+import { challengeTeams, challenges, teamMembers, teams, tenants, users } from '#/db/schema'
 import type { TeamRole } from '#/lib/access'
 import { auth } from '#/lib/auth'
 import { loadAuthCtx } from './auth-context.core'
@@ -41,6 +41,22 @@ export function addAdmin(f: { tenant: { id: string; slug: string }; team: Team }
 export async function addTeam(f: { tenant: { id: string } }, name = `Equipe ${Math.random().toString(36).slice(2, 8)}`) {
   const [team] = await db.insert(teams).values({ tenantId: f.tenant.id, name }).returning()
   return team!
+}
+
+const CHALLENGE_ESTIMATE_SECONDS = 30 * 60
+
+type ChallengeOptions = Partial<typeof challenges.$inferInsert> & { team?: Team; sharedWith?: ReadonlyArray<Team> }
+
+/** Desafio direto no banco: `team` é a dona (a do tenant, se omitida) e `sharedWith`, as vinculadas. */
+export async function addChallenge(f: { tenant: { id: string }; team: Team }, { team = f.team, sharedWith = [], ...patch }: ChallengeOptions = {}) {
+  const [challenge] = await db
+    .insert(challenges)
+    .values({ tenantId: f.tenant.id, teamId: team.id, title: 'Desafio', basePoints: 40, estimatedSeconds: CHALLENGE_ESTIMATE_SECONDS, ...patch })
+    .returning()
+  if (sharedWith.length) {
+    await db.insert(challengeTeams).values(sharedWith.map((shared) => ({ challengeId: challenge!.id, teamId: shared.id, tenantId: f.tenant.id })))
+  }
+  return challenge!
 }
 
 /** `team: null` cria quem não pertence a nenhuma equipe; `role` é o papel de tenant e `teamRole`, o papel na equipe. */

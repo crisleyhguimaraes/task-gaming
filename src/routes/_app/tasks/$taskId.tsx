@@ -108,6 +108,7 @@ function Player({ task }: { task: Awaited<ReturnType<typeof getTask>> }) {
       <TaskPlayer
         task={task}
         busy={busy || task.blockedBy.length > 0}
+        readOnly={task.challengeId !== null && !task.isMine}
         onStart={() => run(() => startTask({ data }))}
         onPause={() => run(() => pauseTask({ data }))}
         onFinish={() => run(async () => setSummary(await finishTask({ data })))}

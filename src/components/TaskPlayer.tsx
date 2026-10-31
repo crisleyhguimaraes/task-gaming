@@ -19,13 +19,15 @@ export type PlayerTask = {
 type Props = {
   task: PlayerTask
   busy: boolean
+  /** Quem só acompanha (o líder diante da tentativa de desafio de outra pessoa) não pausa nem conclui. */
+  readOnly?: boolean
   onStart: () => void
   onPause: () => void
   onFinish: () => void
 }
 
 /** O anel é o protagonista: cronômetro dentro, progresso vs. estimado ao redor (vermelho ao estourar). */
-export function TaskPlayer({ task, busy, onStart, onPause, onFinish }: Props) {
+export function TaskPlayer({ task, busy, readOnly = false, onStart, onPause, onFinish }: Props) {
   const { seconds, interrupted } = useElapsed(task.accumulatedSeconds, task.activeStartedAt, task.cap)
   const running = task.status === 'in_progress' && task.activeStartedAt !== null
   const ratio = seconds / task.estimatedSeconds
@@ -68,25 +70,27 @@ export function TaskPlayer({ task, busy, onStart, onPause, onFinish }: Props) {
       )}
       {over && !interrupted && <p className="text-sm text-rose-300">+{fmtClock(seconds - task.estimatedSeconds)} além do estimado</p>}
 
-      <div className="w-full space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          {running ? (
-            <button onClick={onPause} disabled={busy} className="btn-ghost py-4 text-base">
-              <Pause className="h-5 w-5 fill-current" /> Pausar
+      {!readOnly && (
+        <div className="w-full space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {running ? (
+              <button onClick={onPause} disabled={busy} className="btn-ghost py-4 text-base">
+                <Pause className="h-5 w-5 fill-current" /> Pausar
+              </button>
+            ) : (
+              <button onClick={onStart} disabled={busy} className="btn-primary py-4 text-base">
+                <Play className="h-5 w-5 fill-current" /> {task.status === 'pending' ? 'Iniciar' : 'Retomar'}
+              </button>
+            )}
+            <button onClick={onFinish} disabled={busy || task.status === 'pending'} className="btn-white py-4 text-base">
+              <CheckCircle2 className="h-5 w-5" /> Concluir
             </button>
-          ) : (
-            <button onClick={onStart} disabled={busy} className="btn-primary py-4 text-base">
-              <Play className="h-5 w-5 fill-current" /> {task.status === 'pending' ? 'Iniciar' : 'Retomar'}
-            </button>
-          )}
-          <button onClick={onFinish} disabled={busy || task.status === 'pending'} className="btn-white py-4 text-base">
-            <CheckCircle2 className="h-5 w-5" /> Concluir
-          </button>
+          </div>
+          <p className="text-xs text-neutral-500">
+            {running ? 'Tempo contando para o ranking do dia' : 'Cronômetro parado: sem impacto no ritmo'}
+          </p>
         </div>
-        <p className="text-xs text-neutral-500">
-          {running ? 'Tempo contando para o ranking do dia' : 'Cronômetro parado: sem impacto no ritmo'}
-        </p>
-      </div>
+      )}
     </div>
   )
 }

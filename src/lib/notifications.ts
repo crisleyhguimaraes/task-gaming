@@ -7,6 +7,7 @@ const messages = {
   'points.approved': (by, title) => `${by} aprovou os pontos de "${title}"`,
   'points.rejected': (by, title) => `${by} rejeitou os pontos de "${title}"`,
   'note.created': (by, title) => `${by} comentou em "${title}"`,
+  'challenge.record_broken': (by, title) => `${by} bateu o seu recorde em "${title}"`,
 } satisfies Record<string, Compose>
 
 export type NotificationType = keyof typeof messages

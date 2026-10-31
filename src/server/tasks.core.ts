@@ -1,23 +1,24 @@
 import type { SQL } from 'drizzle-orm'
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Priority } from '#/db/schema'
 import { challenges, opportunities, taskTimeLogs, tasks, teamMembers, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { NO_BOARD } from '#/lib/boards'
+import { chooseAttemptTeam } from '#/lib/challenge'
 import { recordAudit } from './audit.core'
 import { lockBoardForTask } from './boards.core'
-import { scoringAttempt, validAttempt } from './challenges.core'
+import { accessibleChallenge, bestFirst, lockChallengeForAttempt, ownerTeamOf, scoringAttempt, validAttempt } from './challenges.core'
 import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
-import { canAccessTeam, canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
+import { canManage, canManageWith, canSee, fail, forbid, isAdmin, requireCan } from './roles'
 import { activeMembersByTeam, assertMember, inManagedTeams, inTeams, usersInScope } from './scope'
 import { effectiveRules, scoreTask } from './scoring'
 import { snapshotOfTeam } from './scoring-rules.core'
 import { inOpen, localDay, localDayOf, tenantSettings } from './stats'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
-import type { Tx } from './tx'
+import type { Reader, Tx } from './tx'
 
 export { canManage, canSee, fail, isAdmin }
 
@@ -39,11 +40,26 @@ async function closeOpenLogs(tx: Tx, where: SQL | undefined, now: Date) {
 
 type Task = typeof tasks.$inferSelect
 
-/** FOR UPDATE: duas operações simultâneas na mesma tarefa se enfileiram em vez de decidir sobre o mesmo estado. */
-async function loadTask(tx: Tx, me: AuthCtx, taskId: string) {
+/** FOR UPDATE: duas operações simultâneas na mesma tarefa se enfileiram em vez de decidir sobre o mesmo estado. Sem checar visibilidade. */
+async function lockTask(tx: Tx, me: AuthCtx, taskId: string) {
   const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId))).for('update')
-  if (!task || !canSee(me, task)) fail('Tarefa não encontrada')
+  if (!task) fail('Tarefa não encontrada')
   return task
+}
+
+async function loadTask(tx: Tx, me: AuthCtx, taskId: string) {
+  const task = await lockTask(tx, me, taskId)
+  if (!canSee(me, task)) fail('Tarefa não encontrada')
+  return task
+}
+
+/** Quem não vê a tarefa não sabe que ela existe; quem vê e não pode agir recebe a negação. */
+const denyAccess = (me: AuthCtx, task: Task): never => (canSee(me, task) ? forbid() : fail('Tarefa não encontrada'))
+
+/** O líder da equipe dona gerencia as tentativas do desafio dele, mesmo as feitas por pessoas de outra equipe. */
+export async function managesAttempt(tx: Reader, me: AuthCtx, task: Pick<Task, 'tenantId' | 'challengeId'>) {
+  const owner = await ownerTeamOf(tx, me.tenantId, task.challengeId)
+  return owner !== null && canManage(me, { teamId: owner })
 }
 
 /** Tentativa de desafio é do executor: nem o líder pausa ou conclui por ele. */
@@ -74,42 +90,49 @@ async function lockMembership(tx: Tx, me: AuthCtx, taskId: string) {
   if (!link) fail('Tarefa não encontrada')
 }
 
+export const startTaskFor = (me: AuthCtx, taskId: string, now = new Date()) => db.transaction((tx) => startTaskIn(tx, me, taskId, now))
+
+/** A equipe cuja regra pontua a tarefa: a dona do desafio, na tentativa (que também precisa do acesso ao desafio), senão a da própria tarefa. */
+async function scoringTeamOf(tx: Tx, me: AuthCtx, task: Task) {
+  if (!task.challengeId) return task.teamId
+  return (await accessibleChallenge(tx, me, task.challengeId)).teamId
+}
+
 /** Inicia (ou retoma / puxa do pool). Pausa qualquer outra tarefa do usuário. */
-export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
-  return db.transaction(async (tx) => {
-    // Antes de qualquer consulta que devolva dado da tarefa: fora do tenant ou da visibilidade, ela não existe.
-    await lockMembership(tx, me, taskId)
-    const loaded = await loadTask(tx, me, taskId)
-    const [blocker] = await openBlockers(tx, [taskId]).limit(1)
-    if (blocker) fail(`Bloqueada: depende de "${blocker.title}"`)
-    const pausedIds = await closeOpenLogs(tx, eq(taskTimeLogs.userId, me.userId), now)
-    if (pausedIds.length) {
-      await tx.update(tasks).set({ status: 'paused' }).where(and(inArray(tasks.id, pausedIds), eq(tasks.status, 'in_progress')))
-    }
-    // A regra fica congelada no primeiro start. A linha está travada por loadTask, então ninguém inicia a tarefa entre a leitura e o UPDATE.
-    const scoringSnapshot = loaded.startedAt ? undefined : await snapshotOfTeam(tx, me.tenantId, loaded.teamId)
-    // Lock atômico: só pega se ainda estiver livre ou for minha.
-    const [task] = await tx
-      .update(tasks)
-      .set({
-        assignedToId: me.userId,
-        status: 'in_progress',
-        startedAt: sql`coalesce(${tasks.startedAt}, ${now.toISOString()}::timestamptz)`,
-        scoringSnapshot,
-      })
-      .where(
-        and(
-          eq(tasks.id, taskId),
-          eq(tasks.tenantId, me.tenantId),
-          inArray(tasks.status, ['pending', 'paused']),
-          or(isNull(tasks.assignedToId), eq(tasks.assignedToId, me.userId)),
-        ),
-      )
-      .returning()
-    if (!task) fail('Tarefa indisponível: já foi iniciada por outra pessoa ou concluída')
-    await tx.insert(taskTimeLogs).values({ taskId, userId: me.userId, startedAt: now })
-    return task
-  })
+async function startTaskIn(tx: Tx, me: AuthCtx, taskId: string, now: Date) {
+  // Antes de qualquer consulta que devolva dado da tarefa: fora do tenant ou da visibilidade, ela não existe.
+  await lockMembership(tx, me, taskId)
+  const loaded = await loadTask(tx, me, taskId)
+  const scoringTeamId = await scoringTeamOf(tx, me, loaded)
+  const [blocker] = await openBlockers(tx, [taskId]).limit(1)
+  if (blocker) fail(`Bloqueada: depende de "${blocker.title}"`)
+  const pausedIds = await closeOpenLogs(tx, eq(taskTimeLogs.userId, me.userId), now)
+  if (pausedIds.length) {
+    await tx.update(tasks).set({ status: 'paused' }).where(and(inArray(tasks.id, pausedIds), eq(tasks.status, 'in_progress')))
+  }
+  // A regra fica congelada no primeiro start. A linha está travada por loadTask, então ninguém inicia a tarefa entre a leitura e o UPDATE.
+  const scoringSnapshot = loaded.startedAt ? undefined : await snapshotOfTeam(tx, me.tenantId, scoringTeamId)
+  // Lock atômico: só pega se ainda estiver livre ou for minha.
+  const [task] = await tx
+    .update(tasks)
+    .set({
+      assignedToId: me.userId,
+      status: 'in_progress',
+      startedAt: sql`coalesce(${tasks.startedAt}, ${now.toISOString()}::timestamptz)`,
+      scoringSnapshot,
+    })
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(tasks.tenantId, me.tenantId),
+        inArray(tasks.status, ['pending', 'paused']),
+        or(isNull(tasks.assignedToId), eq(tasks.assignedToId, me.userId)),
+      ),
+    )
+    .returning()
+  if (!task) fail('Tarefa indisponível: já foi iniciada por outra pessoa ou concluída')
+  await tx.insert(taskTimeLogs).values({ taskId, userId: me.userId, startedAt: now })
+  return task
 }
 
 export async function pauseTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
@@ -140,13 +163,59 @@ export type FinishSummary = {
   isNewRecord: boolean
 }
 
-/** Melhor tempo válido do desafio, ignorando `excludeTaskId`. */
-async function challengeBest(tx: Tx, challengeId: string, excludeTaskId: string) {
-  const [r] = await tx
-    .select({ best: sql<number | null>`min(${tasks.movingSeconds})` })
+type Best = { seconds: number; userId: string }
+
+/** O recorde atual do desafio (a melhor tentativa válida), ignorando `excludeTaskId`. */
+async function challengeBest(tx: Tx, challengeId: string, excludeTaskId: string): Promise<Best | null> {
+  const [best] = await tx
+    .select({ seconds: sql<number>`${tasks.movingSeconds}`, userId: sql<string>`${tasks.assignedToId}` })
     .from(tasks)
-    .where(and(eq(tasks.challengeId, challengeId), validAttempt, sql`${tasks.id} <> ${excludeTaskId}`))
-  return r?.best ?? null
+    .where(and(eq(tasks.challengeId, challengeId), validAttempt, ne(tasks.id, excludeTaskId)))
+    .orderBy(...bestFirst)
+    .limit(1)
+  return best ?? null
+}
+
+type RecordBreak = { challengeId: string; taskId: string; title: string; teamId: string; seconds: number; previous: Best; by: { id: string; name: string } }
+
+/** O recorde mudou de mãos: audita e avisa o detentor anterior. O aviso sai em nome de quem bateu, mesmo quando é o gestor que aprova a tentativa. */
+async function announceRecordBroken(tx: Tx, me: AuthCtx, record: RecordBreak) {
+  await recordAudit(tx, me, {
+    action: 'challenge.record_broken',
+    entityType: 'challenge',
+    entityId: record.challengeId,
+    meta: { taskId: record.taskId, byUserId: record.by.id, teamId: record.teamId, seconds: record.seconds, previousSeconds: record.previous.seconds, previousHolderId: record.previous.userId },
+  })
+  await notify(tx, { userId: record.by.id, tenantId: me.tenantId }, {
+    userIds: [record.previous.userId],
+    type: 'challenge.record_broken',
+    entityType: 'challenge',
+    entityId: record.challengeId,
+    payload: { taskTitle: record.title, by: record.by.name },
+  })
+}
+
+type AttemptResult = { movingSeconds: number; scored: boolean; needsValidation: boolean; isNewRecord: boolean; previous: Best | null }
+
+/** Audita a tentativa concluída e, se ela superou um recorde que já existia, anuncia a troca de mãos. */
+async function recordAttemptFinished(tx: Tx, me: AuthCtx, attempt: Task & { challengeId: string }, result: AttemptResult) {
+  const { movingSeconds, scored, needsValidation, isNewRecord, previous } = result
+  await recordAudit(tx, me, {
+    action: 'challenge.attempt_finished',
+    entityType: 'challenge',
+    entityId: attempt.challengeId,
+    meta: { taskId: attempt.id, teamId: attempt.teamId, seconds: movingSeconds, scored, needsValidation, isNewRecord },
+  })
+  if (!isNewRecord || !previous) return
+  await announceRecordBroken(tx, me, {
+    challengeId: attempt.challengeId,
+    taskId: attempt.id,
+    title: attempt.title,
+    teamId: attempt.teamId,
+    seconds: movingSeconds,
+    previous,
+    by: { id: me.userId, name: me.name },
+  })
 }
 
 /** Tentativa de desafio rende pontos até o limite diário de tentativas pontuadas; depois vale só pelo tempo e pelo recorde. */
@@ -173,8 +242,8 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
     const score = scoreTask({ basePoints: task.basePoints, estimatedSeconds: task.estimatedSeconds, movingSeconds, elapsedSeconds }, rules)
     const scored = await rendersPoints(tx, task, me.userId, now)
     const finalPoints = scored ? score.finalPoints : 0
-    const prevBest = task.challengeId ? await challengeBest(tx, task.challengeId, task.id) : null
-    const isNewRecord = task.challengeId !== null && !score.needsValidation && (prevBest === null || movingSeconds < prevBest)
+    const previous = task.challengeId ? await challengeBest(tx, task.challengeId, task.id) : null
+    const isNewRecord = task.challengeId !== null && !score.needsValidation && (previous === null || movingSeconds < previous.seconds)
     await tx
       .update(tasks)
       .set({
@@ -186,6 +255,9 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
         needsValidation: score.needsValidation,
       })
       .where(eq(tasks.id, taskId))
+    if (task.challengeId) {
+      await recordAttemptFinished(tx, me, { ...task, challengeId: task.challengeId }, { movingSeconds, scored, needsValidation: score.needsValidation, isNewRecord, previous })
+    }
     return {
       taskId,
       taskTitle: task.title,
@@ -202,40 +274,46 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
   })
 }
 
-/** Tenta um desafio: retoma minha tentativa aberta ou cria uma nova task e inicia. */
-export async function attemptChallengeFor(me: AuthCtx, challengeId: string, now = new Date()) {
-  const [c] = await db
-    .select()
-    .from(challenges)
-    .where(and(eq(challenges.id, challengeId), eq(challenges.tenantId, me.tenantId), isNull(challenges.archivedAt)))
-  if (!c || !canAccessTeam(me, c.teamId)) fail('Desafio não encontrado')
-  // O índice tasks_open_attempt_idx deixa passar uma tentativa aberta por pessoa; no clique duplo a segunda inserção vira no-op.
-  const [created] = await db
-    .insert(tasks)
-    .values({
-      tenantId: c.tenantId,
-      teamId: c.teamId,
-      assignedToId: me.userId,
-      createdById: me.userId,
-      challengeId: c.id,
-      title: c.title,
-      description: c.description,
-      basePoints: c.basePoints,
-      estimatedSeconds: c.estimatedSeconds,
-    })
-    .onConflictDoNothing()
-    .returning()
-  const attempt = created ?? (await findOpenAttempt(me.userId, c.id))
-  return startTaskFor(me, attempt.id, now)
+const adminWithoutTeam = (me: AuthCtx) => isAdmin(me) && me.memberships.length === 0
+
+/**
+ * Tenta um desafio pela equipe `teamId` (ou pela única candidata): retoma minha tentativa aberta ou cria uma nova tarefa e inicia.
+ * Tudo numa transação, segurando o desafio: tirar a equipe do compartilhamento espera esta tentativa e então a enxerga em aberto.
+ */
+export async function attemptChallengeFor(me: AuthCtx, challengeId: string, teamId?: string, now = new Date()) {
+  return db.transaction(async (tx) => {
+    const { challenge, candidateTeamIds } = await lockChallengeForAttempt(tx, me, challengeId)
+    const open = await findOpenAttempt(tx, me.userId, challenge.id)
+    if (open) return startTaskIn(tx, me, open.id, now)
+    if (adminWithoutTeam(me)) fail('Administradores sem equipe não competem')
+    // O índice tasks_open_attempt_idx deixa passar uma tentativa aberta por pessoa; no clique duplo a segunda inserção vira no-op.
+    const [created] = await tx
+      .insert(tasks)
+      .values({
+        tenantId: challenge.tenantId,
+        teamId: chooseAttemptTeam(candidateTeamIds, teamId),
+        assignedToId: me.userId,
+        createdById: me.userId,
+        challengeId: challenge.id,
+        title: challenge.title,
+        description: challenge.description,
+        basePoints: challenge.basePoints,
+        estimatedSeconds: challenge.estimatedSeconds,
+      })
+      .onConflictDoNothing()
+      .returning()
+    const attempt = created ?? (await findOpenAttempt(tx, me.userId, challenge.id))
+    if (!attempt) fail('Tentativa não encontrada, tente de novo')
+    return startTaskIn(tx, me, attempt.id, now)
+  })
 }
 
-async function findOpenAttempt(userId: string, challengeId: string) {
-  const [open] = await db
+async function findOpenAttempt(tx: Tx, userId: string, challengeId: string) {
+  const [open] = await tx
     .select({ id: tasks.id })
     .from(tasks)
-    .where(and(eq(tasks.challengeId, challengeId), eq(tasks.assignedToId, userId), inArray(tasks.status, ['pending', 'in_progress', 'paused'])))
+    .where(and(eq(tasks.challengeId, challengeId), eq(tasks.assignedToId, userId), inOpen()))
     .limit(1)
-  if (!open) fail('Tentativa não encontrada, tente de novo')
   return open
 }
 
@@ -306,11 +384,11 @@ export async function returnToPoolFor(me: AuthCtx, taskId: string, now = new Dat
   })
 }
 
-/** Cancela (gestor). Tempo fica pra métricas; pontos não. */
+/** Cancela (gestor; na tentativa de desafio, também o líder da equipe dona). Tempo fica pra métricas; pontos não. */
 export async function cancelTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
   return db.transaction(async (tx) => {
-    const task = await loadTask(tx, me, taskId)
-    if (!canManage(me, task)) forbid()
+    const task = await lockTask(tx, me, taskId)
+    if (!canManage(me, task) && !(await managesAttempt(tx, me, task))) denyAccess(me, task)
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa já encerrada')
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'cancelled', awardedPoints: null }).where(eq(tasks.id, taskId)).returning()
@@ -324,11 +402,29 @@ export async function cancelTaskFor(me: AuthCtx, taskId: string, now = new Date(
   })
 }
 
-/** Aprova ou rejeita pontos retidos (gestor). */
+/** Na tentativa de desafio quem valida é o admin ou o líder da equipe dona (com `challenge.validate`), e nunca o próprio executor: a tarefa está na equipe de quem tentou, então a visibilidade comum não vale. */
+async function assertCanValidateAttempt(tx: Tx, me: AuthCtx, task: Task) {
+  const owner = await ownerTeamOf(tx, me.tenantId, task.challengeId)
+  const mayValidate = task.assignedToId !== me.userId && owner !== null && canManageWith(me, 'challenge.validate', owner)
+  if (!mayValidate) denyAccess(me, task)
+}
+
+/** A tentativa aprovada passa a valer; se superar o recorde, ele muda de mãos. Rejeitada nunca é recorde. */
+async function announceApprovedRecord(tx: Tx, me: AuthCtx, attempt: Task) {
+  const { challengeId, movingSeconds, assignedToId } = attempt
+  if (!challengeId || movingSeconds === null || !assignedToId) return
+  const previous = await challengeBest(tx, challengeId, attempt.id)
+  if (!previous || movingSeconds >= previous.seconds) return
+  const [by] = await tx.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, assignedToId))
+  await announceRecordBroken(tx, me, { challengeId, taskId: attempt.id, title: attempt.title, teamId: attempt.teamId, seconds: movingSeconds, previous, by: by! })
+}
+
+/** Aprova ou rejeita pontos retidos (gestor; na tentativa de desafio, quem valida o desafio). */
 export async function validatePointsFor(me: AuthCtx, taskId: string, approve: boolean, reason?: string) {
   return db.transaction(async (tx) => {
-    const task = await loadTask(tx, me, taskId)
-    if (!canManage(me, task)) forbid()
+    const task = await lockTask(tx, me, taskId)
+    if (task.challengeId) await assertCanValidateAttempt(tx, me, task)
+    else if (!canManage(me, task)) denyAccess(me, task)
     if (task.status !== 'finished' || !task.needsValidation) fail('Tarefa não aguarda validação')
     const [updated] = await tx
       .update(tasks)
@@ -349,6 +445,7 @@ export async function validatePointsFor(me: AuthCtx, taskId: string, approve: bo
       entityId: taskId,
       payload: { taskTitle: task.title, by: me.name },
     })
+    if (approve) await announceApprovedRecord(tx, me, updated!)
     return updated!
   })
 }
@@ -369,6 +466,28 @@ export async function restoreTaskFor(me: AuthCtx, taskId: string) {
     })
     return updated!
   })
+}
+
+/** A tarefa com o estado do player. O líder da equipe dona também abre a tentativa de outra equipe, para cancelar ou conferir. */
+export async function taskDetailFor(me: AuthCtx, taskId: string) {
+  const [row] = await db
+    .select({ task: tasks, assigneeName: users.name })
+    .from(tasks)
+    .leftJoin(users, eq(users.id, tasks.assignedToId))
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId)))
+  if (!row) fail('Tarefa não encontrada')
+  const ownsAttempt = await managesAttempt(db, me, row.task)
+  if (!canSee(me, row.task) && !ownsAttempt) fail('Tarefa não encontrada')
+  return {
+    ...row.task,
+    assigneeName: row.assigneeName,
+    blockedBy: await openBlockers(db, [row.task.id]),
+    ...(await taskPlayerState(row.task.id, me.userId)),
+    cap: capOfTask(row.task),
+    isMine: row.task.assignedToId === me.userId,
+    canManage: canManage(me, row.task),
+    managesAttempt: ownsAttempt,
+  }
 }
 
 /** Tarefa em andamento/pausada do usuário (HUD). */

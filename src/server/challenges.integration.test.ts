@@ -30,23 +30,23 @@ describe('desafios', () => {
       .values({ tenantId: f.tenant.id, teamId: f.team.id, createdById: a!.userId, title: 'Processar 20 pedidos', basePoints: 40, estimatedSeconds: min(30) })
       .returning()
     const t0 = new Date()
-    const ta = await attemptChallengeFor(a!, c!.id, t0)
+    const ta = await attemptChallengeFor(a!, c!.id, undefined, t0)
     expect(ta.challengeId).toBe(c!.id)
     expect(ta.status).toBe('in_progress')
     // tentar de novo com tentativa aberta → retoma a mesma
-    const again = await attemptChallengeFor(a!, c!.id, at(t0, 1))
+    const again = await attemptChallengeFor(a!, c!.id, undefined, at(t0, 1))
     expect(again.id).toBe(ta.id)
 
     const sa = await finishTaskFor(a!, ta.id, at(t0, 25))
     expect(sa.isNewRecord).toBe(true) // primeiro tempo válido
     expect(sa.movingSeconds).toBe(min(25)) // 1 min do primeiro bloco + 24 do segundo, sem gap
 
-    const tb = await attemptChallengeFor(b!, c!.id, at(t0, 30))
+    const tb = await attemptChallengeFor(b!, c!.id, undefined, at(t0, 30))
     const sb = await finishTaskFor(b!, tb.id, at(t0, 50))
     expect(sb.movingSeconds).toBe(min(20))
     expect(sb.isNewRecord).toBe(true)
 
-    const tb2 = await attemptChallengeFor(b!, c!.id, at(t0, 60))
+    const tb2 = await attemptChallengeFor(b!, c!.id, undefined, at(t0, 60))
     const sb2 = await finishTaskFor(b!, tb2.id, at(t0, 82))
     expect(sb2.isNewRecord).toBe(false) // 22 > 20
 
@@ -66,7 +66,7 @@ describe('desafios', () => {
       .values({ tenantId: f.tenant.id, teamId: f.team.id, createdById: a.userId, title: 'Rápido', basePoints: 10, estimatedSeconds: min(30) })
       .returning()
     const t0 = new Date()
-    const t = await attemptChallengeFor(a, c!.id, t0)
+    const t = await attemptChallengeFor(a, c!.id, undefined, t0)
     const s = await finishTaskFor(a, t.id, at(t0, 2))
     expect(s.needsValidation).toBe(true)
     expect(s.isNewRecord).toBe(false)
@@ -95,7 +95,7 @@ async function newChallenge(overrides: Partial<typeof challenges.$inferInsert> =
 
 /** Tenta e conclui em `minutes`; devolve o resumo da conclusão. */
 async function attemptAndFinish(me: AuthCtx, challengeId: string, start: Date, minutes: number) {
-  const attempt = await attemptChallengeFor(me, challengeId, start)
+  const attempt = await attemptChallengeFor(me, challengeId, undefined, start)
   return finishTaskFor(me, attempt.id, at(start, minutes))
 }
 
@@ -107,7 +107,7 @@ describe('tentativa rejeitada', () => {
     const c = await newChallenge()
     const t0 = new Date()
     await attemptAndFinish(slow, c.id, t0, 10)
-    const flash = await attemptChallengeFor(fast, c.id, at(t0, 20))
+    const flash = await attemptChallengeFor(fast, c.id, undefined, at(t0, 20))
     await finishTaskFor(fast, flash.id, at(t0, 20 + FLASH_MINUTES))
 
     await validatePointsFor(f.leader, flash.id, false)
@@ -125,7 +125,7 @@ describe('tentativa rejeitada', () => {
     const me = await newMember()
     const c = await newChallenge()
     const t0 = new Date()
-    const flash = await attemptChallengeFor(me, c.id, t0)
+    const flash = await attemptChallengeFor(me, c.id, undefined, t0)
     await finishTaskFor(me, flash.id, at(t0, FLASH_MINUTES))
 
     await validatePointsFor(f.leader, flash.id, true)
@@ -179,7 +179,7 @@ describe('tentativa de desafio é do executor', () => {
   async function openAttempt() {
     const me = await newMember()
     const c = await newChallenge()
-    const attempt = await attemptChallengeFor(me, c.id, new Date())
+    const attempt = await attemptChallengeFor(me, c.id, undefined, new Date())
     return { me, c, attempt }
   }
 
@@ -211,7 +211,7 @@ describe('tentativa de desafio é do executor', () => {
 
     await cancelTaskFor(f.leader, attempt.id)
 
-    const again = await attemptChallengeFor(me, c.id, new Date())
+    const again = await attemptChallengeFor(me, c.id, undefined, new Date())
     expect(again.id).not.toBe(attempt.id)
   })
 })
@@ -237,7 +237,7 @@ describe('concorrência', () => {
     const me = await newMember()
     const c = await newChallenge()
     const t0 = new Date()
-    const attempt = await attemptChallengeFor(me, c.id, t0)
+    const attempt = await attemptChallengeFor(me, c.id, undefined, t0)
     await warmPool()
 
     const results = await Promise.allSettled([finishTaskFor(me, attempt.id, at(t0, 20)), finishTaskFor(me, attempt.id, at(t0, 20))])
@@ -294,7 +294,7 @@ describe('tentativas pontuadas por dia', () => {
     const me = await newMember()
     const c = await newChallenge()
     const t0 = new Date()
-    const flash = await attemptChallengeFor(me, c.id, t0)
+    const flash = await attemptChallengeFor(me, c.id, undefined, t0)
     await finishTaskFor(me, flash.id, at(t0, FLASH_MINUTES))
 
     const blocked = await attemptAndFinish(me, c.id, at(t0, 10), 20)

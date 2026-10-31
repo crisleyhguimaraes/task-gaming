@@ -58,6 +58,9 @@ export const defaultGrants = {
   'goal.configure': ADMINS,
   'scoring.configure': ADMINS,
   'board.manage': MANAGERS,
+  'challenge.write': EVERYONE,
+  'challenge.share': MANAGERS,
+  'challenge.validate': MANAGERS,
   'lead.write': EVERYONE,
   'lead.import': MANAGERS,
   'opportunity.write': EVERYONE,
@@ -94,6 +97,9 @@ export const capabilityScope: Record<Capability, CapabilityScope> = {
   'goal.configure': 'tenant',
   'scoring.configure': 'tenant',
   'board.manage': 'team',
+  'challenge.write': 'team',
+  'challenge.share': 'team',
+  'challenge.validate': 'team',
   'lead.write': 'team',
   'lead.import': 'team',
   'opportunity.write': 'team',
@@ -140,6 +146,9 @@ export const defaultTeamId = (me: Pick<AuthCtx, 'memberships'>, teams: ReadonlyA
 
 /** Admin gerencia tudo do tenant; líder gerencia as equipes que lidera. */
 export const canManage = (me: Pick<AuthCtx, 'role' | 'memberships'>, record: { teamId: string }) => isAdmin(me) || roleIn(me, record.teamId) === 'LEADER'
+
+/** Gerencia a equipe e tem a capability nela: a capability sozinha, dada ao membro por override, não faz dele gestor. */
+export const canManageWith = (me: CanCtx, capability: Capability, teamId: string) => canManage(me, { teamId }) && can(me, capability, teamId)
 
 /** Admin entra em qualquer equipe do tenant; os demais, nas que integram. */
 export const canAccessTeam = (me: Pick<AuthCtx, 'role' | 'memberships'>, teamId: string) => isAdmin(me) || isMemberOf(me, teamId)

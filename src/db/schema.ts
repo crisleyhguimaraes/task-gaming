@@ -41,7 +41,6 @@ export const tenants = pgTable('tenants', {
   timezone: varchar('timezone', { length: 64 })
     .notNull()
     .default('America/Sao_Paulo'),
-  dailyGoalPoints: integer('daily_goal_points').notNull().default(100),
   requireTwoFactor: boolean('require_two_factor').notNull().default(false),
   createdAt: ts('created_at').defaultNow().notNull(),
 })
@@ -296,12 +295,32 @@ export const challenges = pgTable(
     basePoints: integer('base_points').notNull().default(10),
     estimatedSeconds: integer('estimated_seconds').notNull(),
     scoredAttemptsPerDay: integer('scored_attempts_per_day').notNull().default(1),
+    // Aberto a todas as equipes do tenant, além da dona.
+    tenantWide: boolean('tenant_wide').notNull().default(false),
     archivedAt: ts('archived_at'),
     createdAt: ts('created_at').defaultNow().notNull(),
   },
   (t) => [
     index('challenges_team_idx').on(t.teamId, t.archivedAt),
+    unique('challenges_tenant_id_unique').on(t.tenantId, t.id),
     check('challenges_scored_attempts_positive', sql`${t.scoredAttemptsPerDay} >= 1`),
+  ],
+)
+
+// A equipe dona (challenges.team_id) fica implícita e não entra aqui.
+export const challengeTeams = pgTable(
+  'challenge_teams',
+  {
+    challengeId: uuid('challenge_id').notNull(),
+    teamId: uuid('team_id').notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.challengeId, t.teamId] }),
+    foreignKey({ name: 'challenge_teams_challenge_tenant_fk', columns: [t.tenantId, t.challengeId], foreignColumns: [challenges.tenantId, challenges.id] }).onDelete('cascade'),
+    foreignKey({ name: 'challenge_teams_team_tenant_fk', columns: [t.teamId, t.tenantId], foreignColumns: [teams.id, teams.tenantId] }).onDelete('cascade'),
+    index('challenge_teams_team_idx').on(t.teamId),
   ],
 )
 

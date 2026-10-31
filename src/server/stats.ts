@@ -1,10 +1,11 @@
-import { and, asc, eq, getTableColumns, inArray, isNull, ne, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
-import { taskTimeLogs, tasks, teamMembers, teams, tenants, users } from '#/db/schema'
+import { challenges, taskTimeLogs, tasks, teamMembers, teams, tenants, users } from '#/db/schema'
 import { MS_PER_DAY, activeDaysOf, computeStreak, dayKey, goalForWeekday, weekdayOf } from '#/lib/goals'
 import { effectiveGoalsOf } from './goals.core'
 import type { AuthCtx } from './roles'
-import { canManage, fail, isAdmin, isManager } from './roles'
+import { can, canManage, canManageWith, fail, isAdmin, isManager, managedTeamIds } from './roles'
 import { inManagedTeams, inMemberTeams, inTenantTeams } from './scope'
 
 const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
@@ -135,6 +136,29 @@ export async function ranking(me: AuthCtx, period: Period, tz: string, teamId?: 
   return [...rows.values()].sort((a, b) => b.points - a.points || a.name.localeCompare(b.name))
 }
 
+const attemptOfChallenge = (condition: SQL | undefined) =>
+  inArray(tasks.challengeId, db.select({ id: challenges.id }).from(challenges).where(condition))
+
+/** Equipes donas cujas tentativas `me` valida: admin, todas; o líder, as que lidera e onde tem `challenge.validate`. */
+const validatedOwnerTeams = (me: AuthCtx, within: ReadonlyArray<string> | undefined) => {
+  if (isAdmin(me)) return can(me, 'challenge.validate') ? within ?? 'all' : []
+  return managedTeamIds(me).filter((teamId) => canManageWith(me, 'challenge.validate', teamId) && (!within || within.includes(teamId)))
+}
+
+/**
+ * Concluídas aguardando validação. Na fila comum entram as tarefas das equipes que `me` gerencia (`commonScope`), exceto as de desafio:
+ * a tentativa está na equipe de quem tentou, mas quem valida é a equipe dona, e nunca a própria pessoa.
+ */
+function awaitingValidation(me: AuthCtx, commonScope: SQL | undefined, withinTeamIds?: ReadonlyArray<string>) {
+  const owners = validatedOwnerTeams(me, withinTeamIds)
+  const attempts = and(
+    eq(tasks.tenantId, me.tenantId),
+    sql`${tasks.assignedToId} is distinct from ${me.userId}`,
+    attemptOfChallenge(and(eq(challenges.tenantId, me.tenantId), owners === 'all' ? undefined : inArray(challenges.teamId, [...owners]))),
+  )
+  return and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, true), or(and(commonScope, isNull(tasks.challengeId)), attempts))
+}
+
 /** Quem está ativo agora (log aberto) + pool; pausadas e aguardando validação só das equipes que `me` gerencia. */
 export async function teamFeed(me: AuthCtx, teamIds: ReadonlyArray<string>) {
   const inFeed = and(eq(tasks.tenantId, me.tenantId), inArray(tasks.teamId, [...teamIds]))
@@ -153,10 +177,20 @@ export async function teamFeed(me: AuthCtx, teamIds: ReadonlyArray<string>) {
     .where(and(managed, eq(tasks.status, 'paused')))
     .orderBy(asc(tasks.title))
   const pendingValidation = await db
-    .select({ taskId: tasks.id, title: tasks.title, name: users.name, points: tasks.awardedPoints, movingSeconds: tasks.movingSeconds, estimatedSeconds: tasks.estimatedSeconds })
+    .select({
+      taskId: tasks.id,
+      title: tasks.title,
+      name: users.name,
+      teamName: teams.name,
+      challengeId: tasks.challengeId,
+      points: tasks.awardedPoints,
+      movingSeconds: tasks.movingSeconds,
+      estimatedSeconds: tasks.estimatedSeconds,
+    })
     .from(tasks)
     .innerJoin(users, eq(users.id, tasks.assignedToId))
-    .where(and(managed, eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
+    .innerJoin(teams, eq(teams.id, tasks.teamId))
+    .where(awaitingValidation(me, managed, teamIds))
     .orderBy(asc(tasks.finishedAt))
   const [pool] = await db.select({ n: sql<number>`count(*)::int` }).from(tasks).where(and(inFeed, unassigned))
   return { activeNow, paused, pendingValidation, poolCount: pool!.n }
@@ -209,6 +243,6 @@ export async function attentionCount(me: AuthCtx) {
   const [val] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(tasks)
-    .where(and(eq(tasks.tenantId, me.tenantId), inManagedTeams(tasks.teamId, me), eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
+    .where(awaitingValidation(me, and(eq(tasks.tenantId, me.tenantId), inManagedTeams(tasks.teamId, me))))
   return { pool: pool!.n, validation: val!.n }
 }
