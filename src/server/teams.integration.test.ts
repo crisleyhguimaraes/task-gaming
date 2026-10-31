@@ -4,8 +4,11 @@ import { db } from '#/db'
 import { auditEvents, boardTeams, boards, pipelines, teamPipelines, teams } from '#/db/schema'
 import type { AuthCtx } from './roles'
 import { archiveBoardFor, createBoardFor } from './boards.core'
+import { createGoalFor, setGoalTeamsFor } from './goals.core'
 import { setCapabilityFor } from './permissions.core'
 import { archivePipelineFor, createPipelineFor, linkTeamToPipelineFor } from './pipelines.core'
+import { FACTORY_RULES } from './scoring'
+import { createScoringRuleFor, setScoringRuleTeamsFor } from './scoring-rules.core'
 import { createTeamFor, deleteTeamFor, listTeamsFor, teamDetailFor, updateTeamFor } from './teams.core'
 import { addAdmin, addTeam, addUser, ctxFor, joinTeam, makeTenant } from './test-fixtures'
 
@@ -249,6 +252,29 @@ describe('teamDetailFor', () => {
     } finally {
       await setCapabilityFor(admin, 'LEADER', 'team.link', false)
     }
+  })
+
+  it('equipe sem vínculo mostra a meta e a pontuação padrão do tenant', async () => {
+    const team = await addTeam(f, uniqueName('Sem vínculo'))
+
+    const detail = await teamDetailFor(admin, team.id)
+
+    expect(detail.goal).toMatchObject({ id: f.goal.id, name: f.goal.name, targetPoints: f.goal.targetPoints, activeDays: f.goal.activeDays, isDefault: true })
+    expect(detail.scoringRule).toMatchObject({ id: f.scoringRule.id, name: f.scoringRule.name, isDefault: true })
+  })
+
+  it('equipe vinculada mostra a meta e a pontuação próprias, inclusive para um membro', async () => {
+    const team = await addTeam(f, uniqueName('Com vínculo'))
+    const member = await addUser(f, { role: 'MEMBER', team })
+    const goal = await createGoalFor(admin, { name: uniqueName('Meta'), targetPoints: 300, activeDays: [1, 3] })
+    const rule = await createScoringRuleFor(admin, { name: uniqueName('Pontuação'), rules: { ...FACTORY_RULES, floorPct: 60 } })
+    await setGoalTeamsFor(admin, goal.id, [team.id])
+    await setScoringRuleTeamsFor(admin, rule.id, [team.id])
+
+    const detail = await teamDetailFor(member, team.id)
+
+    expect(detail.goal).toMatchObject({ id: goal.id, name: goal.name, targetPoints: 300, activeDays: [1, 3], isDefault: false })
+    expect(detail.scoringRule).toMatchObject({ id: rule.id, name: rule.name, isDefault: false })
   })
 
   it('quem não integra a equipe e a equipe de outro tenant são "não encontradas"', async () => {

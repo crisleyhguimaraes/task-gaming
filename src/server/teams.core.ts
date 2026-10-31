@@ -1,6 +1,6 @@
 import { and, asc, count, eq, isNull } from 'drizzle-orm'
 import { db } from '#/db'
-import { boardTeams, boards, challenges, leads, pipelines, tasks, teamMembers, teamPipelines, teams, users } from '#/db/schema'
+import { boardTeams, boards, challenges, goals, leads, pipelines, scoringRules, tasks, teamMembers, teamPipelines, teams, users } from '#/db/schema'
 import { canManageBoard } from '#/lib/boards'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
@@ -126,12 +126,31 @@ async function linkableBoardsOf(me: AuthCtx) {
   return active.filter((board) => canManageBoard(me, teamsOf(board.id)))
 }
 
+/** A meta e a pontuação que valem para a equipe: a vinculada ou, sem vínculo, a padrão do tenant. Falha se faltar o padrão. */
+async function goalInUse(tenantId: string, goalId: string | null) {
+  const [goal] = await db
+    .select({ id: goals.id, name: goals.name, targetPoints: goals.targetPoints, activeDays: goals.activeDays, isDefault: goals.isDefault })
+    .from(goals)
+    .where(and(eq(goals.tenantId, tenantId), goalId ? eq(goals.id, goalId) : eq(goals.isDefault, true)))
+  if (!goal) fail('O tenant não tem meta padrão')
+  return goal
+}
+
+async function scoringRuleInUse(tenantId: string, scoringRuleId: string | null) {
+  const [rule] = await db
+    .select({ id: scoringRules.id, name: scoringRules.name, isDefault: scoringRules.isDefault })
+    .from(scoringRules)
+    .where(and(eq(scoringRules.tenantId, tenantId), scoringRuleId ? eq(scoringRules.id, scoringRuleId) : eq(scoringRules.isDefault, true)))
+  if (!rule) fail('O tenant não tem pontuação padrão')
+  return rule
+}
+
 /** Visível ao admin e a quem integra a equipe; as opções de vínculo só vêm para quem tem `team.link` nela. */
 export async function teamDetailFor(me: AuthCtx, teamId: string) {
   const team = await loadTeam(db, me, teamId)
   if (!canAccessTeam(me, team.id)) fail('Equipe não encontrada')
   const canLink = can(me, 'team.link', team.id)
-  const [members, pipelineLinks, boardLinks, [defaultPipeline], pipelineOptions, boardOptions] = await Promise.all([
+  const [members, pipelineLinks, boardLinks, [defaultPipeline], pipelineOptions, boardOptions, goal, scoringRule] = await Promise.all([
     db
       .select({ userId: users.id, name: users.name, role: teamMembers.role, banned: users.banned })
       .from(teamMembers)
@@ -143,6 +162,8 @@ export async function teamDetailFor(me: AuthCtx, teamId: string) {
     db.select({ id: pipelines.id, name: pipelines.name }).from(pipelines).where(and(eq(pipelines.tenantId, me.tenantId), eq(pipelines.isDefault, true))),
     canLink ? activePipelinesOf(me.tenantId) : [],
     canLink ? linkableBoardsOf(me) : [],
+    goalInUse(me.tenantId, team.goalId),
+    scoringRuleInUse(me.tenantId, team.scoringRuleId),
   ])
   return {
     team: { id: team.id, name: team.name, description: team.description },
@@ -152,5 +173,7 @@ export async function teamDetailFor(me: AuthCtx, teamId: string) {
     defaultPipeline: defaultPipeline ?? null,
     availablePipelines: pipelineOptions.filter(notIn(pipelineLinks)),
     availableBoards: boardOptions.filter(notIn(boardLinks)),
+    goal,
+    scoringRule,
   }
 }

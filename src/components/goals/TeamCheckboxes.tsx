@@ -1,0 +1,30 @@
+import type { TeamRef } from './model'
+
+type Props = {
+  teams: ReadonlyArray<TeamRef>
+  selected: ReadonlyArray<TeamRef>
+  otherOwners: ReadonlyMap<string, string>
+  noun: string
+}
+
+/** Caixas `teamIds` lidas via FormData. Marcar uma equipe tira dela o padrão e o item que ela usava. */
+export function TeamCheckboxes({ teams, selected, otherOwners, noun }: Props) {
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="text-xs font-medium text-neutral-400">Equipes que usam</legend>
+      <p className="text-xs text-neutral-500">
+        Equipe marcada passa a usar esta {noun} no lugar da padrão. Sem marcar, ela segue a padrão do tenant.
+      </p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {teams.map((team) => (
+          <label key={team.id} className="flex items-center gap-2 text-sm text-neutral-200">
+            <input type="checkbox" name="teamIds" value={team.id} defaultChecked={selected.some((s) => s.id === team.id)} className="h-4 w-4 p-0 accent-xp-400" />
+            {team.name}
+            {otherOwners.has(team.id) && <span className="text-xs text-amber-400">hoje usa {otherOwners.get(team.id)}</span>}
+          </label>
+        ))}
+        {teams.length === 0 && <p className="text-sm text-neutral-500">Nenhuma equipe no tenant.</p>}
+      </div>
+    </fieldset>
+  )
+}

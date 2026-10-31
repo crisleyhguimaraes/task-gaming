@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle2, ChevronRight, Clock, Flame, Hand, Medal, Pl
 import * as React from 'react'
 import { Avatar } from '#/components/Avatar'
 import { ChallengeCard } from '#/components/ChallengeCard'
+import { GoalRing } from '#/components/GoalRing'
 import { LevelTrack } from '#/components/LevelTrack'
 import { PointsChart } from '#/components/PointsChart'
 import { Ring } from '#/components/Ring'
@@ -25,7 +26,6 @@ function Today() {
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const level = levelFor(d.totalPoints)
-  const goalPct = d.goal ? Math.min(100, Math.round((d.progress.points / d.goal) * 100)) : 0
   const manager = isManager(me)
 
   async function pull(taskId: string) {
@@ -69,16 +69,7 @@ function Today() {
             {manager && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Nova tarefa</Link>}
           </div>
         </div>
-        <div className="flex items-center gap-4 lg:flex-col lg:items-center lg:text-center">
-          <Ring pct={goalPct} size={120} stroke={10} className="text-cyan-400">
-            <span className="text-xl font-bold">{goalPct}%</span>
-            <span className="text-xs text-neutral-400">da meta</span>
-          </Ring>
-          <div>
-            <div className="text-sm text-neutral-400">Hoje</div>
-            <div className="text-lg font-semibold">{d.goal ? `${d.progress.points} / ${d.goal} pts` : `${d.progress.points} pts · dia livre`}</div>
-          </div>
-        </div>
+        <GoalRing goal={d.goal} points={d.progress.points} />
       </section>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

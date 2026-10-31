@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
 import { EditTeamForm } from '#/components/teams/EditTeamForm'
 import { ResourceLinks } from '#/components/teams/ResourceLinks'
+import { TeamGoals } from '#/components/teams/TeamGoals'
 import { teamRoleLabel } from '#/components/users/model'
 import { appRoute } from '#/lib/app-route'
 import { linkTeamToBoard, unlinkTeamFromBoard } from '#/server/boards'
@@ -17,7 +18,7 @@ export const Route = createFileRoute('/_app/teams/$teamId')({
 
 function TeamDetail() {
   const { me } = appRoute.useRouteContext()
-  const { team, members, pipelines, boards, defaultPipeline, availablePipelines, availableBoards } = Route.useLoaderData()
+  const { team, members, pipelines, boards, defaultPipeline, availablePipelines, availableBoards, goal, scoringRule } = Route.useLoaderData()
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const canEdit = can(me, 'team.manage')
@@ -97,9 +98,7 @@ function TeamDetail() {
         onRemove={(b) => act(() => unlinkTeamFromBoard({ data: { boardId: b.id, teamId: team.id } }))}
       />
 
-      <section aria-labelledby="team-goals" className="space-y-3">
-        <h2 id="team-goals" className="sr-only">Metas e pontuação</h2>
-      </section>
+      <TeamGoals goal={goal} scoringRule={scoringRule} canConfigure={can(me, 'goal.configure') || can(me, 'scoring.configure')} />
     </div>
   )
 }

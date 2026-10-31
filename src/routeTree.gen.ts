@@ -30,9 +30,9 @@ import { Route as AppLeadsImportRouteImport } from './routes/_app/leads/import'
 import { Route as AppOpportunitiesOpportunityIdRouteImport } from './routes/_app/opportunities/$opportunityId'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app/settings/audit'
 import { Route as AppSettingsBoardsRouteImport } from './routes/_app/settings/boards'
+import { Route as AppSettingsGoalsRouteImport } from './routes/_app/settings/goals'
 import { Route as AppSettingsPermissionsRouteImport } from './routes/_app/settings/permissions'
 import { Route as AppSettingsTeamsRouteImport } from './routes/_app/settings/teams'
-import { Route as AppSettingsTenantRouteImport } from './routes/_app/settings/tenant'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks/$taskId'
 import { Route as AppTasksNewRouteImport } from './routes/_app/tasks/new'
@@ -150,6 +150,11 @@ const AppSettingsBoardsRoute = AppSettingsBoardsRouteImport.update({
   path: '/settings/boards',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsGoalsRoute = AppSettingsGoalsRouteImport.update({
+  id: '/settings/goals',
+  path: '/settings/goals',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsPermissionsRoute = AppSettingsPermissionsRouteImport.update({
   id: '/settings/permissions',
   path: '/settings/permissions',
@@ -158,11 +163,6 @@ const AppSettingsPermissionsRoute = AppSettingsPermissionsRouteImport.update({
 const AppSettingsTeamsRoute = AppSettingsTeamsRouteImport.update({
   id: '/settings/teams',
   path: '/settings/teams',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsTenantRoute = AppSettingsTenantRouteImport.update({
-  id: '/settings/tenant',
-  path: '/settings/tenant',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
@@ -237,9 +237,9 @@ export interface FileRoutesByFullPath {
   '/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/boards': typeof AppSettingsBoardsRoute
+  '/settings/goals': typeof AppSettingsGoalsRoute
   '/settings/permissions': typeof AppSettingsPermissionsRoute
   '/settings/teams': typeof AppSettingsTeamsRoute
-  '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/tasks/new': typeof AppTasksNewRoute
@@ -272,9 +272,9 @@ export interface FileRoutesByTo {
   '/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/boards': typeof AppSettingsBoardsRoute
+  '/settings/goals': typeof AppSettingsGoalsRoute
   '/settings/permissions': typeof AppSettingsPermissionsRoute
   '/settings/teams': typeof AppSettingsTeamsRoute
-  '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/tasks/new': typeof AppTasksNewRoute
@@ -309,9 +309,9 @@ export interface FileRoutesById {
   '/_app/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/boards': typeof AppSettingsBoardsRoute
+  '/_app/settings/goals': typeof AppSettingsGoalsRoute
   '/_app/settings/permissions': typeof AppSettingsPermissionsRoute
   '/_app/settings/teams': typeof AppSettingsTeamsRoute
-  '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/tasks/new': typeof AppTasksNewRoute
@@ -346,9 +346,9 @@ export interface FileRouteTypes {
     | '/opportunities/$opportunityId'
     | '/settings/audit'
     | '/settings/boards'
+    | '/settings/goals'
     | '/settings/permissions'
     | '/settings/teams'
-    | '/settings/tenant'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/tasks/new'
@@ -381,9 +381,9 @@ export interface FileRouteTypes {
     | '/opportunities/$opportunityId'
     | '/settings/audit'
     | '/settings/boards'
+    | '/settings/goals'
     | '/settings/permissions'
     | '/settings/teams'
-    | '/settings/tenant'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/tasks/new'
@@ -417,9 +417,9 @@ export interface FileRouteTypes {
     | '/_app/opportunities/$opportunityId'
     | '/_app/settings/audit'
     | '/_app/settings/boards'
+    | '/_app/settings/goals'
     | '/_app/settings/permissions'
     | '/_app/settings/teams'
-    | '/_app/settings/tenant'
     | '/_app/settings/users'
     | '/_app/tasks/$taskId'
     | '/_app/tasks/new'
@@ -594,6 +594,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsBoardsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/goals': {
+      id: '/_app/settings/goals'
+      path: '/settings/goals'
+      fullPath: '/settings/goals'
+      preLoaderRoute: typeof AppSettingsGoalsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/permissions': {
       id: '/_app/settings/permissions'
       path: '/settings/permissions'
@@ -606,13 +613,6 @@ declare module '@tanstack/react-router' {
       path: '/settings/teams'
       fullPath: '/settings/teams'
       preLoaderRoute: typeof AppSettingsTeamsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/tenant': {
-      id: '/_app/settings/tenant'
-      path: '/settings/tenant'
-      fullPath: '/settings/tenant'
-      preLoaderRoute: typeof AppSettingsTenantRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/users': {
@@ -701,9 +701,9 @@ interface AppRouteChildren {
   AppOpportunitiesOpportunityIdRoute: typeof AppOpportunitiesOpportunityIdRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsBoardsRoute: typeof AppSettingsBoardsRoute
+  AppSettingsGoalsRoute: typeof AppSettingsGoalsRoute
   AppSettingsPermissionsRoute: typeof AppSettingsPermissionsRoute
   AppSettingsTeamsRoute: typeof AppSettingsTeamsRoute
-  AppSettingsTenantRoute: typeof AppSettingsTenantRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppTasksTaskIdRoute: typeof AppTasksTaskIdRoute
   AppTasksNewRoute: typeof AppTasksNewRoute
@@ -730,9 +730,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppOpportunitiesOpportunityIdRoute: AppOpportunitiesOpportunityIdRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsBoardsRoute: AppSettingsBoardsRoute,
+  AppSettingsGoalsRoute: AppSettingsGoalsRoute,
   AppSettingsPermissionsRoute: AppSettingsPermissionsRoute,
   AppSettingsTeamsRoute: AppSettingsTeamsRoute,
-  AppSettingsTenantRoute: AppSettingsTenantRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppTasksTaskIdRoute: AppTasksTaskIdRoute,
   AppTasksNewRoute: AppTasksNewRoute,

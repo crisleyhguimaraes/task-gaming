@@ -63,9 +63,21 @@ Outras regras que moldam o jogo:
 - **Desafio = tarefa repetível.** Cada tentativa é uma tarefa com `challenge_id`; o recorde é o menor tempo em movimento válido (tentativa rejeitada pelo líder não conta, e o empate fica com quem concluiu primeiro). Só o executor pausa e conclui a própria tentativa.
 - **Tentativas pontuadas por dia.** Cada desafio define quantas tentativas válidas por pessoa e por dia (no fuso do tenant) rendem pontos, 1 por padrão; as seguintes valem para o tempo e o recorde, mas rendem 0 pontos. Os pontos base de um desafio vão até 1000.
 - **Dependências.** Grafo acíclico com detecção de ciclo; tarefa bloqueada não inicia.
-- **Sequência.** Dias consecutivos com conclusão válida no fuso do tenant; fim de semana sem tarefa não quebra.
+- **Sequência.** Dias consecutivos com conclusão válida no fuso do tenant; dia fora dos dias da meta, sem tarefa, não quebra.
 - **Níveis.** Iniciante 0 → Aprendiz 100 → Executor 300 → Veterano 600 → Especialista 1000 → Mestre 1500 → Lenda 2500 pontos.
 - Pontos, ranking, sequência e nível são **derivados por consulta** — nada é materializado, então nunca ficam inconsistentes.
+
+## Metas e pontuação
+
+Em **Configurações → Metas e pontuação** (abas Metas, Pontuações e Geral) o admin configura dois catálogos separados, cada um vinculável a equipes. A tabela acima é a pontuação de fábrica, que vira a pontuação Padrão de cada tenant.
+
+- **Meta**: pontos por dia (10 a 10000) e os **dias da semana** em que vale. Nos outros dias a meta é nenhuma: a tela Hoje mostra "Dia livre" e a sequência não quebra sem tarefa.
+- **Pontuação**: todos os limiares da tabela acima (retenção, bônus de ritmo, estouro, pausa, piso e teto de abandono), em percentuais inteiros, com um exemplo ao vivo no formulário.
+- **Padrão do tenant**: todo tenant tem uma meta e uma pontuação padrão, que não se excluem. Equipe sem vínculo usa a padrão; vincular uma equipe a outra meta ou pontuação **substitui** a padrão para ela. Excluir um item devolve as equipes dele à padrão.
+- **Quem está em várias equipes** cumpre a **maior** meta do dia entre as equipes com o dia ativo, e a sequência usa a união dos dias.
+- **A regra fica na tarefa.** A pontuação vigente é gravada na tarefa no primeiro início (o *snapshot*): editar uma pontuação só vale para tarefas que ainda não começaram, e o histórico nunca é reescrito.
+- **Mudar os dias de uma meta recalcula a sequência de todo mundo, inclusive a passada**, porque ela é derivada por consulta. O formulário avisa e a auditoria guarda o antes e o depois.
+- Só o admin configura (`goal.configure`, `scoring.configure`); as capabilities não são delegáveis, para um líder não inflar os pontos da própria equipe. O detalhe da equipe mostra, em leitura, a meta e a pontuação que ela usa.
 
 ## Papéis
 
@@ -116,7 +128,7 @@ Toda mudança relevante grava um evento em `audit_events` **na mesma transação
 
 - **Reset de senha por email**: a resposta é a mesma exista ou não o email. Sem `RESEND_API_KEY`, o link vai para o console do servidor.
 - **Rate limit** no login (5 por minuto) e no pedido de reset (3 por 10 minutos), contado em memória, então vale para uma instância. O limite é por IP e lê `x-forwarded-for`: **atrás de proxy, garanta esse cabeçalho**, senão todo mundo cai no mesmo balde.
-- **2FA TOTP** com códigos de recuperação, ativado no perfil. O gestor pode **exigir 2FA** para todo o tenant em Configurações → Organização. Ainda não há tela para resetar o 2FA de quem perdeu o celular e os códigos.
+- **2FA TOTP** com códigos de recuperação, ativado no perfil. O gestor pode **exigir 2FA** para todo o tenant em Configurações → Metas e pontuação → Geral. Ainda não há tela para resetar o 2FA de quem perdeu o celular e os códigos.
 
 ## Pipeline comercial
 

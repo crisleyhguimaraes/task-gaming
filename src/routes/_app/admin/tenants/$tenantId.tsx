@@ -49,9 +49,7 @@ function TenantDetail() {
       </Link>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{tenant.name}</h1>
-        <p className="text-xs text-neutral-500">
-          {tenant.slug} · {tenant.timezone} · meta diária {tenant.dailyGoalPoints} pts
-        </p>
+        <p className="text-xs text-neutral-500">{tenant.slug} · {tenant.timezone}</p>
       </div>
 
       <form onSubmit={onSubmit} className="card space-y-3">

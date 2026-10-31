@@ -9,5 +9,5 @@ export const getTenantSettings = createServerFn()
 
 export const updateTenantSettings = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(z.object({ dailyGoalPoints: z.number(), timezone: z.string(), requireTwoFactor: z.boolean() }))
+  .validator(z.object({ timezone: z.string(), requireTwoFactor: z.boolean() }))
   .handler(({ data, context: { auth: me } }) => updateTenantSettingsFor(me, data))
