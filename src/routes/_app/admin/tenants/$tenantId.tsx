@@ -5,6 +5,7 @@ import { authClient } from '#/lib/auth-client'
 import { createTenantAdmin, getTenant } from '#/server/tenants'
 
 export const Route = createFileRoute('/_app/admin/tenants/$tenantId')({
+  staticData: { pageWidth: 'narrow' },
   loader: ({ params }) => getTenant({ data: { tenantId: params.tenantId } }),
   component: TenantDetail,
 })

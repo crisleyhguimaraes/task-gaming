@@ -12,6 +12,7 @@ import { can, defaultTeamId, isAdmin } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/challenges/new')({
+  staticData: { pageWidth: 'narrow' },
   loader: async () => {
     const [mine, managed] = await Promise.all([getMyTeamOptions(), getTaskFormOptions()])
     return { myTeams: mine.teams, managedTeams: managed.teams }

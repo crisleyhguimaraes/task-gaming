@@ -13,6 +13,7 @@ import { getProfile, updateProfile } from '#/server/profile'
 import { getTwoFactorStatus } from '#/server/two-factor'
 
 export const Route = createFileRoute('/_app/profile')({
+  staticData: { pageWidth: 'narrow' },
   loader: async () => {
     const [profile, twoFactor] = await Promise.all([getProfile(), getTwoFactorStatus()])
     return { profile, twoFactor }

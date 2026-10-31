@@ -7,6 +7,7 @@ import { getOpportunity } from '#/server/pipeline'
 import { createTask, getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/tasks/new')({
+  staticData: { pageWidth: 'narrow' },
   validateSearch: z.object({ opportunityId: z.uuid().optional() }),
   loaderDeps: ({ search }) => ({ opportunityId: search.opportunityId }),
   loader: async ({ deps }) => {

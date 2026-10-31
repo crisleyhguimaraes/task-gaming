@@ -7,6 +7,7 @@ import { addDependency, getDependencies, removeDependency } from '#/server/depen
 import { getTask, getTaskFormOptions, updateTask } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/tasks/edit/$taskId')({
+  staticData: { pageWidth: 'narrow' },
   loader: async ({ params }) => {
     const [task, options, deps, boards] = await Promise.all([
       getTask({ data: { taskId: params.taskId } }),

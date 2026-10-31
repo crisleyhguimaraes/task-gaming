@@ -12,6 +12,7 @@ import { isAdmin } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/challenges/$challengeId')({
+  staticData: { pageWidth: 'narrow' },
   loader: async ({ params }) => {
     const challenge = await getChallenge({ data: { challengeId: params.challengeId } })
     const managedTeams = challenge.canShare ? (await getTaskFormOptions()).teams : []

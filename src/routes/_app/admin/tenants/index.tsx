@@ -4,6 +4,7 @@ import * as React from 'react'
 import { createTenant, listTenants } from '#/server/tenants'
 
 export const Route = createFileRoute('/_app/admin/tenants/')({
+  staticData: { pageWidth: 'wide' },
   loader: () => listTenants(),
   component: Tenants,
 })

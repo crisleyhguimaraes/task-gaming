@@ -12,6 +12,7 @@ import { canManage } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/opportunities/$opportunityId')({
+  staticData: { pageWidth: 'wide' },
   loader: async ({ params }) => {
     const [detail, notes, options] = await Promise.all([
       getOpportunity({ data: { opportunityId: params.opportunityId } }),

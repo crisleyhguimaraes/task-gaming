@@ -13,6 +13,7 @@ import { can } from '#/server/roles'
 import { cancelTask, finishTask, getTask, pauseTask, restoreTask, returnToPool, startTask } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/tasks/$taskId')({
+  staticData: { pageWidth: 'narrow' },
   loader: async ({ params }) => {
     const target = { type: 'task', id: params.taskId } as const
     const task = await getTask({ data: { taskId: params.taskId } })
