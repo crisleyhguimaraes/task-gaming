@@ -3,6 +3,7 @@ import { ArrowLeft, Save, Trash2 } from 'lucide-react'
 import * as React from 'react'
 import { LeadFields, readLeadFields, readLeadStatus } from '#/components/leads/LeadFields'
 import { StatusBadge } from '#/components/leads/StatusBadge'
+import { PageHeader } from '#/components/PageHeader'
 import { ConvertLeadModal } from '#/components/pipeline/ConvertLeadModal'
 import { Notes } from '#/components/Notes'
 import { appRoute } from '#/lib/app-route'
@@ -12,6 +13,7 @@ import { assignLead, claimLead, deleteLead, getLead, getMyTeamOptions, updateLea
 import { can, isMemberOf } from '#/server/roles'
 
 export const Route = createFileRoute('/_app/leads/$leadId')({
+  staticData: { pageWidth: 'wide' },
   loader: async ({ params }) => {
     const [detail, options] = await Promise.all([getLead({ data: { leadId: params.leadId } }), getMyTeamOptions()])
     return { ...detail, options }
@@ -26,6 +28,8 @@ function LeadPage() {
   const navigate = useNavigate()
   const [error, setError] = React.useState<string | null>(null)
   const teamMembers = options.members.filter((m) => m.teamId === lead.teamId)
+  const ownership = lead.ownerName ? `responsável: ${lead.ownerName}` : 'no pool, sem responsável'
+  const subtitle = [lead.teamName, ownership, `criado em ${new Date(lead.createdAt).toLocaleDateString('pt-BR')}`].join(' · ')
   const canClaim = !lead.ownerId && isMemberOf(me, lead.teamId) && can(me, 'lead.write', lead.teamId)
 
   async function act(fn: () => Promise<unknown>) {
@@ -53,83 +57,79 @@ function LeadPage() {
     <div className="space-y-5">
       <Link to="/leads" className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-50"><ArrowLeft className="h-4 w-4" /> Leads</Link>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">{lead.name}</h1>
-            <StatusBadge status={lead.status} />
-          </div>
-          <p className="text-sm text-neutral-400">
-            {lead.teamName} · {lead.ownerName ? `responsável: ${lead.ownerName}` : 'no pool, sem responsável'} · criado em {new Date(lead.createdAt).toLocaleDateString('pt-BR')}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canClaim && <button onClick={() => act(() => claimLead({ data: { leadId: lead.id } }))} className="btn-primary px-3 py-2 text-xs">Assumir</button>}
-          {canEdit && can(me, 'opportunity.write', lead.teamId) && (
-            <ConvertLeadModal lead={lead} onDone={(opportunityId) => navigate({ to: '/opportunities/$opportunityId', params: { opportunityId } })} />
-          )}
-          {canManage && (
-            <select
-              aria-label="Atribuir a"
-              value={lead.ownerId ?? ''}
-              onChange={(e) => e.target.value && act(() => assignLead({ data: { leadId: lead.id, ownerId: e.target.value } }))}
-              className="w-auto py-2 text-xs"
-            >
-              <option value="" disabled>Atribuir a…</option>
-              {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          )}
-          {canManage && <button onClick={remove} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-rose-400" title="Excluir lead"><Trash2 className="h-4 w-4" /></button>}
-        </div>
-      </div>
+      <PageHeader title={lead.name} subtitle={subtitle}>
+        <StatusBadge status={lead.status} />
+        {canClaim && <button onClick={() => act(() => claimLead({ data: { leadId: lead.id } }))} className="btn-primary px-3 py-2 text-xs">Assumir</button>}
+        {canEdit && can(me, 'opportunity.write', lead.teamId) && (
+          <ConvertLeadModal lead={lead} onDone={(opportunityId) => navigate({ to: '/opportunities/$opportunityId', params: { opportunityId } })} />
+        )}
+        {canManage && (
+          <select
+            aria-label="Atribuir a"
+            value={lead.ownerId ?? ''}
+            onChange={(e) => e.target.value && act(() => assignLead({ data: { leadId: lead.id, ownerId: e.target.value } }))}
+            className="w-auto py-2 text-xs"
+          >
+            <option value="" disabled>Atribuir a…</option>
+            {teamMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        )}
+        {canManage && <button onClick={remove} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-800 hover:text-rose-400" title="Excluir lead"><Trash2 className="h-4 w-4" /></button>}
+      </PageHeader>
       {error && <p className="rounded-lg border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
 
-      {canEdit ? (
-        <form
-          key={String(lead.updatedAt)}
-          onSubmit={(e) => {
-            e.preventDefault()
-            const form = new FormData(e.currentTarget)
-            act(() => updateLead({ data: { leadId: lead.id, ...readLeadFields(form), status: readLeadStatus(form) } }))
-          }}
-          className="card space-y-3"
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <LeadFields lead={lead} />
-            <div className="space-y-1">
-              <label htmlFor="status">Status</label>
-              <select id="status" name="status" defaultValue={lead.status}>
-                {leadStatuses.map((s) => <option key={s} value={s}>{leadStatusLabels[s]}</option>)}
-              </select>
-            </div>
-          </div>
-          <button className="btn-primary"><Save className="h-4 w-4" /> Salvar</button>
-        </form>
-      ) : (
-        <dl className="card grid gap-3 text-sm sm:grid-cols-2">
-          {([['Empresa', lead.company], ['Origem', leadSourceLabels[parseSource(lead.source)]], ['E-mail', lead.email], ['Telefone', lead.phone]] as const).map(([label, value]) => (
-            <div key={label}><dt className="text-xs text-neutral-500">{label}</dt><dd>{value || '—'}</dd></div>
-          ))}
-        </dl>
-      )}
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-neutral-300">Oportunidades</h2>
-        <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
-          {opportunities.map((o) => (
-            <li key={o.id} className="flex items-center justify-between gap-3 px-4 py-3">
-              <Link to="/opportunities/$opportunityId" params={{ opportunityId: o.id }} className="truncate font-medium hover:underline">{o.title}</Link>
-              <div className="flex shrink-0 items-center gap-3 text-xs text-neutral-400">
-                <span>{formatCents(o.amountCents)}</span>
-                <span className="rounded-full border border-neutral-700 px-2 py-0.5">{o.stageName}</span>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="space-y-5">
+          {canEdit ? (
+            <form
+              key={String(lead.updatedAt)}
+              onSubmit={(e) => {
+                e.preventDefault()
+                const form = new FormData(e.currentTarget)
+                act(() => updateLead({ data: { leadId: lead.id, ...readLeadFields(form), status: readLeadStatus(form) } }))
+              }}
+              className="card space-y-3"
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <LeadFields lead={lead} />
+                <div className="space-y-1">
+                  <label htmlFor="status">Status</label>
+                  <select id="status" name="status" defaultValue={lead.status}>
+                    {leadStatuses.map((s) => <option key={s} value={s}>{leadStatusLabels[s]}</option>)}
+                  </select>
+                </div>
               </div>
-            </li>
-          ))}
-          {opportunities.length === 0 && <li className="px-4 py-6 text-center text-sm text-neutral-500">Nenhuma oportunidade para este lead.</li>}
-        </ul>
-      </section>
+              <button className="btn-primary"><Save className="h-4 w-4" /> Salvar</button>
+            </form>
+          ) : (
+            <dl className="card grid gap-3 text-sm sm:grid-cols-2">
+              {([['Empresa', lead.company], ['Origem', leadSourceLabels[parseSource(lead.source)]], ['E-mail', lead.email], ['Telefone', lead.phone]] as const).map(([label, value]) => (
+                <div key={label}><dt className="text-xs text-neutral-500">{label}</dt><dd>{value || '—'}</dd></div>
+              ))}
+            </dl>
+          )}
 
-      <Notes target={{ type: 'lead', id: lead.id }} notes={notes} />
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-neutral-300">Oportunidades</h2>
+            <ul className="card divide-y divide-neutral-800 overflow-hidden p-0">
+              {opportunities.map((o) => (
+                <li key={o.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <Link to="/opportunities/$opportunityId" params={{ opportunityId: o.id }} className="truncate font-medium hover:underline">{o.title}</Link>
+                  <div className="flex shrink-0 items-center gap-3 text-xs text-neutral-400">
+                    <span>{formatCents(o.amountCents)}</span>
+                    <span className="rounded-full border border-neutral-700 px-2 py-0.5">{o.stageName}</span>
+                  </div>
+                </li>
+              ))}
+              {opportunities.length === 0 && <li className="px-4 py-6 text-center text-sm text-neutral-500">Nenhuma oportunidade para este lead.</li>}
+            </ul>
+          </section>
+        </div>
+
+        <div className="card">
+          <Notes target={{ type: 'lead', id: lead.id }} notes={notes} />
+        </div>
+      </div>
     </div>
   )
 }

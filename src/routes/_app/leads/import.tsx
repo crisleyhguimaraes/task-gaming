@@ -5,6 +5,7 @@ import * as React from 'react'
 import { ImportMapping } from '#/components/leads/ImportMapping'
 import { ImportPreview } from '#/components/leads/ImportPreview'
 import type { ImportChoices } from '#/components/leads/ImportPreview'
+import { PageHeader } from '#/components/PageHeader'
 import { appRoute } from '#/lib/app-route'
 import { applyColumnMapping, guessColumnMapping, maxImportRows } from '#/lib/leads'
 import type { ColumnMapping } from '#/lib/leads'
@@ -13,6 +14,7 @@ import type { ImportResult, RowPreview } from '#/server/leads-import.core'
 import { can, defaultTeamId } from '#/server/roles'
 
 export const Route = createFileRoute('/_app/leads/import')({
+  staticData: { pageWidth: 'wide' },
   loader: () => getMyTeamOptions(),
   component: ImportLeads,
 })
@@ -75,10 +77,7 @@ function ImportLeads() {
   return (
     <div className="space-y-5">
       <Link to="/leads" className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-50"><ArrowLeft className="h-4 w-4" /> Leads</Link>
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Importar leads</h1>
-        <p className="text-sm text-neutral-500">Arquivo CSV com cabeçalho, até {maxImportRows} linhas.</p>
-      </div>
+      <PageHeader title="Importar leads" subtitle={`Arquivo CSV com cabeçalho, até ${maxImportRows} linhas.`} />
       {error && <p className="rounded-lg border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
 
       {!table && (
@@ -135,7 +134,7 @@ function Result({ result, onRestart }: { result: ImportResult; onRestart: () => 
       {result.errors.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-neutral-300">Linhas com erro, não importadas</h2>
-          <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800 text-sm">
+          <ul className="card divide-y divide-neutral-800 overflow-hidden p-0 text-sm">
             {result.errors.map((e) => (
               <li key={e.row} className="px-4 py-2"><span className="text-xs text-neutral-500">Linha {e.row + 1}</span> <span className="text-rose-400">{e.messages.join('; ')}</span></li>
             ))}

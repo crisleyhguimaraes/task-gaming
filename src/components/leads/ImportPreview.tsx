@@ -50,7 +50,7 @@ export function ImportPreview({ rows, preview, choices, onChoices }: Props) {
       {attention.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-neutral-300">Linhas que pedem atenção</h2>
-          <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800 text-sm">
+          <ul className="card divide-y divide-neutral-800 overflow-hidden p-0 text-sm">
             {attention.slice(0, maxRowsShown).map((p) => (
               <li key={p.row} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
                 <span className="min-w-0 truncate">
