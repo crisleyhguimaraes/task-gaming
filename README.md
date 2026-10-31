@@ -72,7 +72,7 @@ Outras regras que moldam o jogo:
 Em **Configurações → Metas e pontuação** (abas Metas, Pontuações e Geral) o admin configura dois catálogos separados, cada um vinculável a equipes. A tabela acima é a pontuação de fábrica, que vira a pontuação Padrão de cada tenant.
 
 - **Meta**: pontos por dia (10 a 10000) e os **dias da semana** em que vale. Nos outros dias a meta é nenhuma: a tela Hoje mostra "Dia livre" e a sequência não quebra sem tarefa.
-- **Pontuação**: todos os limiares da tabela acima (retenção, bônus de ritmo, estouro, pausa, piso e teto de abandono), em percentuais inteiros, com um exemplo ao vivo no formulário.
+- **Pontuação**: todos os limiares da tabela acima (retenção, bônus de ritmo, estouro, pausa, piso e teto de abandono), em percentuais inteiros de 0 a 1000 (o multiplicador do teto vai de 1 a 100), com um exemplo ao vivo no formulário.
 - **Padrão do tenant**: todo tenant tem uma meta e uma pontuação padrão, que não se excluem. Equipe sem vínculo usa a padrão; vincular uma equipe a outra meta ou pontuação **substitui** a padrão para ela. Excluir um item devolve as equipes dele à padrão.
 - **Quem está em várias equipes** cumpre a **maior** meta do dia entre as equipes com o dia ativo, e a sequência usa a união dos dias.
 - **A regra fica na tarefa.** A pontuação vigente é gravada na tarefa no primeiro início (o *snapshot*): editar uma pontuação só vale para tarefas que ainda não começaram, e o histórico nunca é reescrito.
@@ -111,7 +111,7 @@ Não existe cadastro aberto. Pessoas entram por **convite por email** (link vál
 
 ### Permissões por capability
 
-Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que a pessoa pode **como líder da equipe** e **como membro** em **Configurações → Permissões**; o papel vale por equipe, então quem lidera A e integra B tem os poderes de líder só em A; o papel de admin é fixo, e as capabilities que valem para o tenant inteiro (`tenant.manage`, `tenant.configure`, `team.manage`, `user.update`, `permissions.manage`, `audit.read`, `pipeline.configure`) não são delegáveis. Quem recebe uma capability delegada continua restrito às equipes em que ela vale para o seu papel. O escopo por equipe (`canManage`/`canSee`, sobre os vínculos em `team_members`) segue valendo por baixo.
+Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que a pessoa pode **como líder da equipe** e **como membro** em **Configurações → Permissões**; o papel vale por equipe, então quem lidera A e integra B tem os poderes de líder só em A; o papel de admin é fixo, e as capabilities que valem para o tenant inteiro (`tenant.manage`, `tenant.configure`, `team.manage`, `user.update`, `permissions.manage`, `audit.read`, `pipeline.configure`) não são delegáveis. Quem recebe uma capability delegada continua restrito às equipes em que ela vale para o seu papel: criar e editar leads e oportunidades, convites e exportação CSV são conferidos na equipe do registro, não só na entrada. O escopo por equipe (`canManage`/`canSee`, sobre os vínculos em `team_members`) segue valendo por baixo.
 
 ### Vínculos com equipes
 
@@ -123,9 +123,9 @@ Quem já tem conta entra em outra equipe, sai dela ou muda de papel nela por ví
 | Promover a líder, rebaixar ou trocar o papel | só o admin |
 | Tirar uma pessoa da equipe | o admin, ou o líder daquela equipe tirando um `MEMBER` dela (nunca outro líder nem a si mesmo) |
 
-Quem sai de uma equipe devolve ao pool só o trabalho aberto *daquela* equipe; o das outras continua com a pessoa. Quem já está na equipe com outro papel não muda de papel ao ser adicionado de novo: a troca é uma ação à parte. `user.update` é só o papel de tenant e só do admin.
+Quem sai de uma equipe devolve ao pool só o trabalho aberto *daquela* equipe (tarefas, leads e oportunidades abertas); o das outras continua com a pessoa. Oportunidade fechada guarda o nome de quem a fechou, mas quem saiu da equipe deixa de abri-la. Quem já está na equipe com outro papel não muda de papel ao ser adicionado de novo: a troca é uma ação à parte. `user.update` é só o papel de tenant e só do admin.
 
-Usuários podem ser **desativados** (derruba as sessões e devolve o trabalho aberto ao pool) e reativados. Toda negação de acesso vira um evento `access.denied`.
+Usuários podem ser **desativados** (derruba as sessões e devolve o trabalho aberto, de todas as equipes, ao pool) e reativados. Toda negação de acesso vira um evento `access.denied`.
 
 ## Auditoria
 
@@ -147,8 +147,9 @@ Leads, oportunidades e etapas do funil, multitenant e com a mesma visibilidade p
 
 - **Leads**: cadastro com aviso de duplicado (e-mail ou telefone), pool da equipe com claim atômico, atribuição e **importação CSV** com mapeamento de colunas e prévia.
 - **Oportunidades**: nascem da conversão de um lead, na primeira etapa aberta. Mover para *Perdida* exige motivo; sair de uma etapa fechada exige a capability `opportunity.reopen`. Valor guardado em centavos.
-- **Etapas**: configuráveis por tenant (Configurações → Funil de vendas), sempre com ao menos uma aberta, uma ganha e uma perdida. Só se exclui etapa nunca usada.
+- **Pipelines**: o tenant tem vários (Configurações → Pipelines), cada um com as próprias etapas, sempre com ao menos uma aberta, uma ganha e uma perdida; só se exclui etapa nunca usada. Equipe sem vínculo usa o pipeline padrão; vincular a equipe a outro **substitui** o padrão para ela, e o vínculo vale para o que se cria daí em diante, sem reescrever histórico. Desvincular ou arquivar com oportunidade aberta é recusado, e o primeiro vínculo explícito também, enquanto a equipe tiver oportunidade aberta no padrão. A oportunidade nunca muda de pipeline.
 - **Funil**: forecast ponderado pela probabilidade da etapa, conversão entre etapas, taxa de ganho e ciclo médio, tudo derivado por consulta.
+- **Boards** agrupam tarefas (Configurações → Boards): as colunas continuam sendo o status, e a tarefa pode ficar sem board. Só equipes vinculadas criam tarefas num board, e arquivar ou desvincular com tarefa aberta é recusado. Criar um board já vinculado a equipes exige `team.link` nelas; o líder só gerencia board em que **todas** as equipes vinculadas são dele. Os vínculos de pipeline e board se editam no detalhe da equipe.
 - **Follow-ups** são tarefas ligadas à oportunidade: usam o player, o Kanban e os pontos de sempre.
 - Pontos por negócio ganho **não** existem ainda: todos os pontos vêm de tarefas.
 
