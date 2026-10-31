@@ -2,7 +2,7 @@ import { asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, challengeTeams, challenges } from '#/db/schema'
-import { challengeDetailFor, createChallengeFor, setChallengeTeamsFor } from './challenges.core'
+import { challengeDetailFor, createChallengeFor, listChallengesFor, setChallengeTeamsFor } from './challenges.core'
 import { ForbiddenError } from './roles'
 import type { AuthCtx } from './roles'
 import { attemptChallengeFor, cancelTaskFor, finishTaskFor } from './tasks.core'
@@ -202,5 +202,27 @@ describe('tirar do alcance uma equipe com tentativa em aberto', () => {
     await attemptChallengeFor(memberOfA, c.id)
 
     await expect(setChallengeTeamsFor(admin, c.id, { teamIds: [], tenantWide: false })).resolves.toEqual({ added: [], removed: [teamB.id] })
+  })
+})
+
+describe('listagem para a etiqueta de compartilhado', () => {
+  it('conta as equipes vinculadas, sem a dona', async () => {
+    const [alone, shared] = [await addChallenge(f), await addChallenge(f, { sharedWith: [teamB, teamC] })]
+
+    const list = await listChallengesFor(admin)
+
+    expect(list.find((c) => c.id === alone.id)).toMatchObject({ sharedTeamCount: 0 })
+    expect(list.find((c) => c.id === shared.id)).toMatchObject({ sharedTeamCount: 2 })
+  })
+
+  it('o recorde traz a equipe pela qual foi feito, não a do detentor hoje', async () => {
+    const c = await addChallenge(f, { sharedWith: [teamB] })
+    const holder = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: teamB })).userId, f.team, 'MEMBER')
+    const attempt = await attemptChallengeFor(holder, c.id, teamB.id)
+    await finishTaskFor(holder, attempt.id, new Date(Date.now() + 20 * 60_000))
+
+    const record = (await listChallengesFor(admin)).find((x) => x.id === c.id)!.record
+
+    expect(record).toMatchObject({ holderId: holder.userId, holderTeam: teamB.name })
   })
 })

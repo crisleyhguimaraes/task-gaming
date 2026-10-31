@@ -78,13 +78,29 @@ export async function listChallengesFor(me: AuthCtx, includeArchived = false) {
   if (list.length === 0) return []
   // Recorde por desafio: primeira linha por challenge_id ordenada pelo menor tempo.
   const records = await db
-    .selectDistinctOn([tasks.challengeId], { challengeId: tasks.challengeId, best: tasks.movingSeconds, holder: users.name, holderId: users.id })
+    .selectDistinctOn([tasks.challengeId], { challengeId: tasks.challengeId, best: tasks.movingSeconds, holder: users.name, holderId: users.id, holderTeam: teams.name })
     .from(tasks)
     .innerJoin(users, eq(users.id, tasks.assignedToId))
+    .innerJoin(teams, eq(teams.id, tasks.teamId))
     .where(and(eq(tasks.tenantId, me.tenantId), validAttempt, sql`${tasks.challengeId} is not null`))
     .orderBy(tasks.challengeId, ...bestFirst)
   const byId = new Map(records.map((r) => [r.challengeId, r]))
-  return list.map(({ challenge, teamName }) => ({ ...challenge, teamName, record: byId.get(challenge.id) ?? null }))
+  const sharedCounts = await sharedTeamCounts(list.map(({ challenge }) => challenge.id))
+  return list.map(({ challenge, teamName }) => ({
+    ...challenge,
+    teamName,
+    sharedTeamCount: sharedCounts.get(challenge.id) ?? 0,
+    record: byId.get(challenge.id) ?? null,
+  }))
+}
+
+async function sharedTeamCounts(challengeIds: ReadonlyArray<string>) {
+  const rows = await db
+    .select({ challengeId: challengeTeams.challengeId, n: count() })
+    .from(challengeTeams)
+    .where(inArray(challengeTeams.challengeId, [...challengeIds]))
+    .groupBy(challengeTeams.challengeId)
+  return new Map(rows.map((r) => [r.challengeId, r.n]))
 }
 
 /** Melhor tentativa válida de cada pessoa, da mais rápida para a mais lenta, com a equipe pela qual ela foi feita. */

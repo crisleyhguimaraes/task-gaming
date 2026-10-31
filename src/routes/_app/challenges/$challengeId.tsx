@@ -1,35 +1,31 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
-import { Archive, ArrowLeft, Flame, Play, Trophy } from 'lucide-react'
-import * as React from 'react'
-import { Avatar } from '#/components/Avatar'
-import { fmtClock } from '#/lib/format'
+import { Archive, ArrowLeft, Flame, Trophy } from 'lucide-react'
+import { AttemptButton } from '#/components/challenges/AttemptButton'
+import { ChallengeRankings } from '#/components/challenges/ChallengeRankings'
+import { ChallengeTeams } from '#/components/challenges/ChallengeTeams'
+import { ShareChallenge } from '#/components/challenges/ShareChallenge'
 import { appRoute } from '#/lib/app-route'
-import { archiveChallenge, attemptChallenge, getChallenge } from '#/server/challenges'
+import { fmtClock } from '#/lib/format'
+import { archiveChallenge, getChallenge } from '#/server/challenges'
+import { canManageWith, isAdmin } from '#/server/roles'
+import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/challenges/$challengeId')({
-  loader: ({ params }) => getChallenge({ data: { challengeId: params.challengeId } }),
+  loader: async ({ params }) => {
+    const challenge = await getChallenge({ data: { challengeId: params.challengeId } })
+    const managedTeams = challenge.canShare ? (await getTaskFormOptions()).teams : []
+    return { challenge, managedTeams }
+  },
   component: Challenge,
 })
 
 function Challenge() {
-  const c = Route.useLoaderData()
+  const { challenge: c, managedTeams } = Route.useLoaderData()
   const { me } = appRoute.useRouteContext()
   const router = useRouter()
-  const [error, setError] = React.useState<string | null>(null)
-  const [busy, setBusy] = React.useState(false)
   const record = c.ranking[0]
+  const shareable = managedTeams.filter((t) => t.id !== c.teamId && canManageWith(me, 'challenge.share', t.id))
 
-  async function attempt() {
-    setBusy(true)
-    try {
-      const t = await attemptChallenge({ data: { challengeId: c.id } })
-      await router.invalidate()
-      router.navigate({ to: '/tasks/$taskId', params: { taskId: t.id } })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
-      setBusy(false)
-    }
-  }
   async function archive() {
     if (!confirm('Arquivar este desafio? As tentativas ficam no histórico.')) return
     await archiveChallenge({ data: { challengeId: c.id } })
@@ -40,60 +36,43 @@ function Challenge() {
   return (
     <div className="space-y-5">
       <Link to="/challenges" className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-50"><ArrowLeft className="h-4 w-4" /> Desafios</Link>
-      <div className="space-y-1">
-        <div className="flex items-center gap-2 text-xs text-neutral-500">
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500">
           <span className="inline-flex items-center gap-1 rounded-full border border-xp-800/40 bg-xp-950/30 px-2 py-0.5 font-semibold text-xp-400"><Flame className="h-3 w-3 fill-xp-400" /> {c.basePoints} pts</span>
           <span>meta {fmtClock(c.estimatedSeconds)}</span>
-          <span>· {c.teamName}</span>
+          <span>· {c.scoredAttemptsPerDay} pontuada{c.scoredAttemptsPerDay === 1 ? '' : 's'} por dia</span>
           {c.archivedAt && <span>· arquivado</span>}
         </div>
         <h1 className="text-2xl font-bold tracking-tight">{c.title}</h1>
         {c.description && <p className="text-sm text-neutral-400">{c.description}</p>}
-        {c.creatorName && <p className="text-xs text-neutral-600">criado por {c.creatorName}</p>}
+        <ChallengeTeams ownerName={c.teamName} tenantWide={c.tenantWide} sharedTeams={c.sharedTeams} />
+        <p className="text-xs text-neutral-600">
+          {c.creatorName && `criado por ${c.creatorName} · `}pontos validados pelo líder da equipe {c.teamName}
+        </p>
       </div>
 
       <div className="card flex items-center justify-between">
         <div>
-          <div className="text-sm font-semibold text-neutral-300">Recorde da equipe</div>
+          <div className="text-sm font-semibold text-neutral-300">Recorde</div>
           {record ? (
-            <div className="flex items-baseline gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-3xl font-black text-xp-400">{fmtClock(record.best ?? 0)}</span>
-              <span className="text-sm text-neutral-300">{record.name}</span>
+              <span className="text-sm text-neutral-300">{record.name} · {record.teamName}</span>
             </div>
           ) : (
             <div className="text-sm text-neutral-400">Ninguém completou ainda. Seja o primeiro.</div>
           )}
         </div>
-        <Trophy className="h-10 w-10 text-xp-500/40" />
+        <Trophy className="h-10 w-10 shrink-0 text-xp-500/40" />
       </div>
 
-      {!c.archivedAt && (
-        <button onClick={attempt} disabled={busy} className="btn-primary w-full py-4">
-          <Play className="h-5 w-5 fill-current" /> {c.openAttempt ? 'Continuar minha tentativa' : 'Tentar agora'}
-        </button>
+      {!c.archivedAt && <AttemptButton challengeId={c.id} openAttempt={c.openAttempt} competingTeams={c.competingTeams} me={me} />}
+
+      <ChallengeRankings ranking={c.ranking} teamRanking={c.teamRanking} meId={me.userId} myTeamIds={me.memberships.map((m) => m.teamId)} />
+
+      {c.canShare && !c.archivedAt && (shareable.length > 0 || isAdmin(me)) && (
+        <ShareChallenge challenge={c} manageable={shareable} canShareTenantWide={isAdmin(me)} />
       )}
-      {error && <p className="text-sm text-rose-400">{error}</p>}
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-neutral-300">Ranking</h2>
-        <ol className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
-          {c.ranking.map((r, i) => (
-            <li key={r.userId} className={`flex items-center justify-between px-4 py-3 ${r.userId === me.userId ? 'bg-xp-950/10' : ''}`}>
-              <div className="flex items-center gap-3">
-                <span className={`w-5 text-center text-sm font-bold ${i === 0 ? 'text-xp-400' : 'text-neutral-500'}`}>{i + 1}</span>
-                <Avatar name={r.name} />
-                <div>
-                  <div className="text-sm font-medium">{r.name}</div>
-                  <div className="text-[11px] text-neutral-500">{r.attempts} tentativa{r.attempts === 1 ? '' : 's'} · {r.points} pts</div>
-                </div>
-              </div>
-              <span className="text-sm font-bold">{fmtClock(r.best ?? 0)}</span>
-            </li>
-          ))}
-          {c.ranking.length === 0 && <li className="px-4 py-6 text-center text-sm text-neutral-500">Sem tempos válidos ainda.</li>}
-        </ol>
-      </section>
-
       {c.canEdit && !c.archivedAt && (
         <button onClick={archive} className="btn-ghost w-full text-neutral-400"><Archive className="h-4 w-4" /> Arquivar desafio</button>
       )}

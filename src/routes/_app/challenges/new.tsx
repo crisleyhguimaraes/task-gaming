@@ -1,20 +1,34 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
+import { TeamPicker } from '#/components/challenges/TeamPicker'
+import { appRoute } from '#/lib/app-route'
 import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
 import { createChallenge } from '#/server/challenges'
 import { getMyTeamOptions } from '#/server/leads'
+import { can, canManageWith, defaultTeamId, isAdmin } from '#/server/roles'
+import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/challenges/new')({
-  loader: () => getMyTeamOptions(),
+  loader: async () => {
+    const [mine, managed] = await Promise.all([getMyTeamOptions(), getTaskFormOptions()])
+    return { myTeams: mine.teams, managedTeams: managed.teams }
+  },
   component: NewChallenge,
 })
 
 function NewChallenge() {
-  const { teams: myTeams } = Route.useLoaderData()
+  const { myTeams, managedTeams } = Route.useLoaderData()
+  const { me } = appRoute.useRouteContext()
   const router = useRouter()
+  const ownerOptions = myTeams.filter((t) => can(me, 'challenge.write', t.id))
+  const [ownerId, setOwnerId] = React.useState(defaultTeamId(me, ownerOptions))
+  const [pickedIds, setPickedIds] = React.useState<Array<string>>([])
+  const [tenantWide, setTenantWide] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
+  const shareable = managedTeams.filter((t) => t.id !== ownerId && canManageWith(me, 'challenge.share', t.id))
+  const canShareTenantWide = isAdmin(me)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -28,7 +42,9 @@ function NewChallenge() {
           basePoints: Number(f.get('basePoints')),
           estimatedMinutes: Number(f.get('estimatedMinutes')),
           scoredAttemptsPerDay: Number(f.get('scoredAttemptsPerDay')),
-          teamId: String(f.get('teamId')),
+          teamId: ownerId,
+          teamIds: pickedIds.filter((id) => shareable.some((t) => t.id === id)),
+          tenantWide: canShareTenantWide && tenantWide,
         },
       })
       await router.invalidate()
@@ -39,7 +55,7 @@ function NewChallenge() {
     }
   }
 
-  if (myTeams.length === 0) return <p className="card text-sm text-neutral-400">Você precisa estar em uma equipe pra criar desafios.</p>
+  if (ownerOptions.length === 0) return <p className="card text-sm text-neutral-400">Você precisa estar em uma equipe pra criar desafios.</p>
 
   return (
     <div className="space-y-4">
@@ -48,18 +64,29 @@ function NewChallenge() {
       <form onSubmit={onSubmit} className="card space-y-4">
         <div className="space-y-1"><label htmlFor="title">Título</label><input id="title" name="title" required minLength={2} maxLength={200} placeholder="Ex: Processar 20 pedidos" /></div>
         <div className="space-y-1"><label htmlFor="description">Descrição / regras</label><textarea id="description" name="description" rows={3} maxLength={2000} /></div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="space-y-1"><label htmlFor="basePoints">Pontos</label><input id="basePoints" name="basePoints" type="number" min={1} max={MAX_CHALLENGE_BASE_POINTS} defaultValue={20} required /></div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1"><label htmlFor="basePoints">Pontos base (máx. {MAX_CHALLENGE_BASE_POINTS})</label><input id="basePoints" name="basePoints" type="number" min={1} max={MAX_CHALLENGE_BASE_POINTS} defaultValue={20} required /></div>
           <div className="space-y-1"><label htmlFor="estimatedMinutes">Meta (min)</label><input id="estimatedMinutes" name="estimatedMinutes" type="number" min={1} max={1440} defaultValue={30} required /></div>
           <div className="space-y-1"><label htmlFor="scoredAttemptsPerDay">Tentativas pontuadas por dia</label><input id="scoredAttemptsPerDay" name="scoredAttemptsPerDay" type="number" min={1} max={MAX_SCORED_ATTEMPTS_PER_DAY} defaultValue={1} required /></div>
-          <div className="space-y-1">
-            <label htmlFor="teamId">Equipe</label>
-            <select id="teamId" name="teamId" defaultValue={myTeams[0]?.id}>
-              {myTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
         </div>
-        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <div className="space-y-1">
+          <label htmlFor="teamId">Equipe dona</label>
+          <select id="teamId" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+            {ownerOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <p className="text-xs text-neutral-500">A equipe dona valida os pontos de todas as tentativas, inclusive as de equipes com quem você compartilhar.</p>
+        </div>
+        {(shareable.length > 0 || canShareTenantWide) && (
+          <div className="space-y-3">
+            {shareable.length > 0 && <TeamPicker legend="Compartilhar com" teams={shareable} picked={pickedIds} onChange={setPickedIds} />}
+            {canShareTenantWide && (
+              <label className="flex items-center gap-2 text-sm text-neutral-200">
+                <input type="checkbox" checked={tenantWide} onChange={(e) => setTenantWide(e.target.checked)} className="h-4 w-4 p-0 accent-xp-400" /> Todo o tenant
+              </label>
+            )}
+          </div>
+        )}
+        {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
         <button className="btn-primary w-full" disabled={busy}>Criar desafio</button>
       </form>
     </div>

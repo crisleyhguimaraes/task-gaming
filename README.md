@@ -79,6 +79,17 @@ Em **Configurações → Metas e pontuação** (abas Metas, Pontuações e Geral
 - **Mudar os dias de uma meta recalcula a sequência de todo mundo, inclusive a passada**, porque ela é derivada por consulta. O formulário avisa e a auditoria guarda o antes e o depois.
 - Só o admin configura (`goal.configure`, `scoring.configure`); as capabilities não são delegáveis, para um líder não inflar os pontos da própria equipe. O detalhe da equipe mostra, em leitura, a meta e a pontuação que ela usa.
 
+## Desafios compartilhados
+
+Todo desafio tem uma **equipe dona**, que pode ser a única a competir ou dividir o desafio com outras equipes, ou com o tenant todo, para haver competição entre elas.
+
+- **Quem participa.** A dona e as equipes vinculadas, ou todas as equipes do tenant com **Todo o tenant** (inclusive as criadas depois). O desafio aparece na lista com a etiqueta *Compartilhado · N equipes* ou *Toda a empresa*. O admin sem equipe vê o desafio, mas não compete.
+- **Por qual equipe eu compito.** Cada tentativa conta para **uma** equipe sua que participa. Se houver mais de uma, a tela pergunta "Competir por qual equipe?" antes de começar; com uma só, ela entra sozinha. Uma tentativa em aberto é retomada, sem nova escolha.
+- **Dois rankings.** *Pessoas*: melhor tempo válido de cada uma, com a equipe pela qual foi feito. *Equipes*: a média do melhor tempo válido de cada participante, com o número de participantes e a parte da equipe que já tentou. Empate: mais participantes, depois quem fechou o resultado antes.
+- **Quem valida.** O líder da equipe dona, ou o admin, aprova ou rejeita as tentativas retidas, mesmo as de outras equipes: elas aparecem em **Equipe → Aguardando validação** com o rótulo *Desafio* e a equipe de quem tentou. A rejeitada deixa de valer para o recorde. O líder da dona também cancela tentativas do desafio dele.
+- **Pontos.** Por padrão, só a **1ª tentativa válida do dia** rende pontos (configurável por desafio, de 1 a 100); as seguintes valem pelo tempo, com 0 ponto.
+- **Compartilhar é unilateral.** Sem aceite da outra equipe. O líder da dona só inclui ou tira equipes que ele mesmo lidera; as demais equipes e o tenant todo são do admin (`challenge.share`). Tirar uma equipe com tentativa em aberto é recusado até a tentativa ser concluída ou cancelada.
+
 ## Papéis
 
 Há dois níveis de papel. O **papel de tenant** (`users.role`) diz o que a pessoa é na organização; o **papel de equipe** (`team_members.role`) diz o que ela é *em cada equipe*. Uma pessoa pode estar em várias equipes, com papel diferente em cada uma: líder em A e membro em B.

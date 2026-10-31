@@ -122,7 +122,7 @@ function Player({ task }: { task: Awaited<ReturnType<typeof getTask>> }) {
         {task.canManage && !task.challengeId && (
           <Link to="/tasks/edit/$taskId" params={{ taskId: task.id }} className="btn-ghost px-3 py-1.5 text-neutral-400"><Pencil className="h-3.5 w-3.5" /> Editar</Link>
         )}
-        {task.canManage && (
+        {(task.canManage || task.managesAttempt) && (
           <button onClick={() => confirm('Cancelar esta tarefa? Não gera pontos.') && run(() => cancelTask({ data }))} disabled={busy} className="btn-ghost px-3 py-1.5 text-neutral-400">
             <Ban className="h-3.5 w-3.5" /> Cancelar
           </button>

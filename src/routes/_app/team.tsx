@@ -98,14 +98,21 @@ function Team() {
             {data.feed.pendingValidation.map((p) => (
               <li key={p.taskId} className="card flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{p.title}</div>
+                  <div className="flex items-center gap-1.5">
+                    {p.challengeId && (
+                      <Link to="/challenges/$challengeId" params={{ challengeId: p.challengeId }} className="shrink-0 rounded-full border border-amber-800/50 bg-amber-950/30 px-2 py-0.5 text-[11px] font-semibold text-amber-300 hover:bg-amber-950/60">
+                        Desafio
+                      </Link>
+                    )}
+                    <span className="truncate text-sm font-medium">{p.title}</span>
+                  </div>
                   <div className="text-xs text-neutral-500">
-                    {p.name} · {fmtClock(p.movingSeconds ?? 0)} de {fmtClock(p.estimatedSeconds)} · {p.points} pts
+                    {p.name} · {p.teamName} · {fmtClock(p.movingSeconds ?? 0)} de {fmtClock(p.estimatedSeconds)} · {p.points} pts
                   </div>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={() => act(() => validatePoints({ data: { taskId: p.taskId, approve: true } }))} className="btn-primary px-3 py-1.5 text-xs" title="Aprovar"><Check className="h-4 w-4" /></button>
-                  <button onClick={() => act(() => validatePoints({ data: { taskId: p.taskId, approve: false } }))} className="btn-ghost px-3 py-1.5 text-xs" title="Rejeitar (0 pts)"><X className="h-4 w-4" /></button>
+                  <button onClick={() => act(() => validatePoints({ data: { taskId: p.taskId, approve: true } }))} className="btn-primary px-3 py-1.5 text-xs" title="Aprovar" aria-label={`Aprovar ${p.title} de ${p.name}`}><Check className="h-4 w-4" /></button>
+                  <button onClick={() => act(() => validatePoints({ data: { taskId: p.taskId, approve: false } }))} className="btn-ghost px-3 py-1.5 text-xs" title="Rejeitar (0 pts)" aria-label={`Rejeitar ${p.title} de ${p.name} (0 pts)`}><X className="h-4 w-4" /></button>
                 </div>
               </li>
             ))}
