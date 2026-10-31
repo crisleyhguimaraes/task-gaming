@@ -1,8 +1,10 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import * as React from 'react'
+import type { TeamRole } from '#/lib/access'
+import { teamRoles } from '#/lib/access'
 import { getCapabilityOverrides, setCapability } from '#/server/permissions'
-import type { Capability, OverridableRole } from '#/server/roles'
-import { can, capabilities, nonDelegableCapabilities, overridableRoles } from '#/server/roles'
+import type { Capability } from '#/server/roles'
+import { capabilities, defaultGrants, nonDelegableCapabilities, teamRoleCan } from '#/server/roles'
 
 export const Route = createFileRoute('/_app/settings/permissions')({
   loader: () => getCapabilityOverrides(),
@@ -29,7 +31,7 @@ const capabilityLabel: Record<Capability, string> = {
   'opportunity.reopen': 'Reabrir oportunidades',
 }
 
-const roleColumn: Record<OverridableRole, string> = { TEAM_LEADER: 'Líder de equipe', MEMBER: 'Membro' }
+const roleColumn: Record<TeamRole, string> = { LEADER: 'Como líder da equipe', MEMBER: 'Como membro' }
 const tenantCapabilities = capabilities.filter((c) => c !== 'tenant.manage')
 
 function Permissions() {
@@ -37,7 +39,7 @@ function Permissions() {
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
 
-  async function toggle(role: OverridableRole, capability: Capability, allowed: boolean) {
+  async function toggle(role: TeamRole, capability: Capability, allowed: boolean) {
     try {
       await setCapability({ data: { role, capability, allowed } })
       setError(null)
@@ -52,7 +54,7 @@ function Permissions() {
       <div>
         <p className="text-sm text-neutral-400">Configurações</p>
         <h1 className="text-2xl font-bold tracking-tight">Permissões</h1>
-        <p className="mt-1 text-sm text-neutral-500">O que líderes e membros podem fazer neste tenant. Gestores gerais sempre mantêm o padrão, para ninguém trancar o próprio acesso.</p>
+        <p className="mt-1 text-sm text-neutral-500">O que a pessoa pode fazer em cada equipe, conforme o papel dela naquela equipe. Quem é líder numa equipe e membro em outra tem os poderes de cada papel só na respectiva equipe. Gestores gerais sempre mantêm o padrão, para ninguém trancar o próprio acesso.</p>
       </div>
       {error && <p className="text-sm text-rose-400">{error}</p>}
       <div className="overflow-x-auto rounded-2xl border border-neutral-800">
@@ -61,7 +63,7 @@ function Permissions() {
             <tr className="border-b border-neutral-800 text-left text-xs text-neutral-400">
               <th className="px-4 py-2.5 font-medium">Permissão</th>
               <th className="px-3 py-2.5 text-center font-medium">Gestor geral</th>
-              {overridableRoles.map((role) => <th key={role} className="px-3 py-2.5 text-center font-medium">{roleColumn[role]}</th>)}
+              {teamRoles.map((role) => <th key={role} className="px-3 py-2.5 text-center font-medium">{roleColumn[role]}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-800">
@@ -69,13 +71,13 @@ function Permissions() {
               <tr key={capability}>
                 <td className="px-4 py-2.5">{capabilityLabel[capability]}</td>
                 <td className="px-3 py-2.5 text-center">
-                  <input type="checkbox" checked={can({ role: 'TENANT_ADMIN' }, capability)} disabled aria-label={`${capabilityLabel[capability]}: gestor geral`} className="h-4 w-4 p-0 accent-xp-400" />
+                  <input type="checkbox" checked={defaultGrants[capability].includes('TENANT_ADMIN')} disabled aria-label={`${capabilityLabel[capability]}: gestor geral`} className="h-4 w-4 p-0 accent-xp-400" />
                 </td>
-                {overridableRoles.map((role) => (
+                {teamRoles.map((role) => (
                   <td key={role} className="px-3 py-2.5 text-center">
                     <input
                       type="checkbox"
-                      checked={can({ role, capabilityOverrides: overrides[role] }, capability)}
+                      checked={teamRoleCan(role, capability, overrides)}
                       disabled={nonDelegableCapabilities.includes(capability)}
                       onChange={(e) => toggle(role, capability, e.target.checked)}
                       aria-label={`${capabilityLabel[capability]}: ${roleColumn[role]}`}

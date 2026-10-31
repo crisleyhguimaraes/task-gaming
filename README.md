@@ -80,7 +80,7 @@ Não existe cadastro aberto. Pessoas entram por **convite por email** (link vál
 
 ### Permissões por capability
 
-Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que **líder** e **membro** podem em **Configurações → Permissões**; o papel de admin é fixo, e as capabilities que valem para o tenant inteiro (`tenant.manage`, `tenant.configure`, `team.manage`, `permissions.manage`, `audit.read`, `pipeline.configure`) não são delegáveis. Quem recebe uma capability delegada continua restrito à própria equipe. O escopo por equipe (`canManage`/`canSee`) segue valendo por baixo.
+Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que a pessoa pode **como líder da equipe** e **como membro** em **Configurações → Permissões**; o papel vale por equipe, então quem lidera A e integra B tem os poderes de líder só em A; o papel de admin é fixo, e as capabilities que valem para o tenant inteiro (`tenant.manage`, `tenant.configure`, `team.manage`, `permissions.manage`, `audit.read`, `pipeline.configure`) não são delegáveis. Quem recebe uma capability delegada continua restrito às equipes em que ela vale para o seu papel. O escopo por equipe (`canManage`/`canSee`, sobre os vínculos em `team_members`) segue valendo por baixo.
 
 Usuários podem ser **desativados** (derruba as sessões e devolve o trabalho aberto ao pool) e reativados. Toda negação de acesso vira um evento `access.denied`.
 

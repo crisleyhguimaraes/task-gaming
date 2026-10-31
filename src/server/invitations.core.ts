@@ -30,7 +30,7 @@ const newToken = () => randomBytes(32).toString('hex')
 const newExpiry = () => new Date(Date.now() + SEVEN_DAYS)
 
 export async function createInvitationCore(me: AuthCtx, data: { email: string; teamId: string | null; role: Exclude<Role, 'SUPER_ADMIN'> }) {
-  assertWithinScope(me, data)
+  assertWithinScope(me, data, 'invitation.manage')
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email))
   if (exists) fail('Este email já tem conta')

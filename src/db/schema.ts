@@ -19,17 +19,13 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
+import type { Role, TeamRole } from '#/lib/access'
+import { teamRoles, userRoles } from '#/lib/access'
 
-export const roleEnum = pgEnum('role', [
-  'SUPER_ADMIN',
-  'TENANT_ADMIN',
-  'TEAM_LEADER',
-  'MEMBER',
-])
-export type Role = (typeof roleEnum.enumValues)[number]
+export const roleEnum = pgEnum('role', userRoles)
+export type { Role, TeamRole }
 
-export const teamRoleEnum = pgEnum('team_role', ['LEADER', 'MEMBER'])
-export type TeamRole = (typeof teamRoleEnum.enumValues)[number]
+export const teamRoleEnum = pgEnum('team_role', teamRoles)
 
 const ts = (name: string) => timestamp(name, { withTimezone: true })
 
@@ -347,7 +343,7 @@ export const twoFactors = pgTable(
   (t) => [index('two_factors_secret_idx').on(t.secret), index('two_factors_user_idx').on(t.userId)],
 )
 
-// Ajuste por tenant sobre defaultGrants (roles.ts). Linha ausente = padrão de fábrica.
+// Ajuste por tenant sobre defaultGrants (roles.ts), por papel dentro da equipe. Linha ausente = padrão de fábrica.
 export const roleCapabilities = pgTable(
   'role_capabilities',
   {
@@ -355,7 +351,7 @@ export const roleCapabilities = pgTable(
     tenantId: uuid('tenant_id')
       .references(() => tenants.id, { onDelete: 'cascade' })
       .notNull(),
-    role: roleEnum('role').notNull(),
+    role: teamRoleEnum('role').notNull(),
     capability: varchar('capability', { length: 40 }).notNull(),
     allowed: boolean('allowed').notNull(),
   },

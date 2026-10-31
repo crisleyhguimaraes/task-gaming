@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import type { Role } from '#/db/schema'
-import { ForbiddenError, capabilities, can, defaultGrants, forbid, nonDelegableCapabilities, requireCan } from './roles'
+import type { Role, TeamRole } from '#/lib/access'
+import type { AuthCtx } from './roles'
+import { ForbiddenError, canManage, canSee, capabilities, can, defaultGrants, forbid, isManager, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
+
+const A = 'team-a'
+const B = 'team-b'
+
+type Person = Pick<AuthCtx, 'userId' | 'role' | 'memberships' | 'capabilityOverrides'>
+
+const person = (role: Role, memberships: Array<[string, TeamRole]> = [], capabilityOverrides: AuthCtx['capabilityOverrides'] = {}): Person => ({
+  userId: 'me',
+  role,
+  memberships: memberships.map(([teamId, teamRole]) => ({ teamId, role: teamRole })),
+  capabilityOverrides,
+})
 
 const hierarchy: Array<Role> = ['MEMBER', 'TEAM_LEADER', 'TENANT_ADMIN', 'SUPER_ADMIN']
-const as = (role: Role) => ({ role })
+const as = (role: Role, capabilityOverrides: AuthCtx['capabilityOverrides'] = {}) =>
+  person(role, role === 'TEAM_LEADER' ? [[A, 'LEADER']] : role === 'MEMBER' ? [[A, 'MEMBER']] : [], capabilityOverrides)
 
 describe('capabilities', () => {
   it('quem pode uma capability forma o topo da hierarquia: cada papel superior herda o que o inferior pode', () => {
@@ -44,16 +58,16 @@ describe('capabilities', () => {
 
 describe('overrides por tenant', () => {
   it('sem override vale o padrão de fábrica', () => {
-    expect(can({ role: 'MEMBER', capabilityOverrides: {} }, 'export.csv')).toBe(false)
-    expect(can({ role: 'TEAM_LEADER', capabilityOverrides: {} }, 'export.csv')).toBe(true)
+    expect(can(as('MEMBER'), 'export.csv')).toBe(false)
+    expect(can(as('TEAM_LEADER'), 'export.csv')).toBe(true)
   })
 
   it('override concede o que o padrão nega', () => {
-    expect(can({ role: 'MEMBER', capabilityOverrides: { 'export.csv': true } }, 'export.csv')).toBe(true)
+    expect(can(as('MEMBER', { MEMBER: { 'export.csv': true } }), 'export.csv')).toBe(true)
   })
 
   it('override revoga o que o padrão concede, e só a capability citada', () => {
-    const leader = { role: 'TEAM_LEADER', capabilityOverrides: { 'user.create': false } } as const
+    const leader = as('TEAM_LEADER', { LEADER: { 'user.create': false } })
 
     expect(can(leader, 'user.create')).toBe(false)
     expect(can(leader, 'invitation.manage')).toBe(true)
@@ -63,8 +77,9 @@ describe('overrides por tenant', () => {
 describe('capabilities não delegáveis', () => {
   it.each(nonDelegableCapabilities)('override de %s é ignorado, mesmo gravado: vale só o padrão de fábrica', (capability) => {
     for (const role of ['TEAM_LEADER', 'MEMBER'] as const) {
-      expect(can({ role, capabilityOverrides: { [capability]: true } }, capability)).toBe(can(as(role), capability))
-      expect(can({ role, capabilityOverrides: { [capability]: false } }, capability)).toBe(can(as(role), capability))
+      const teamRole = role === 'TEAM_LEADER' ? 'LEADER' : 'MEMBER'
+      expect(can(as(role, { [teamRole]: { [capability]: true } }), capability)).toBe(can(as(role), capability))
+      expect(can(as(role, { [teamRole]: { [capability]: false } }), capability)).toBe(can(as(role), capability))
     }
   })
 
@@ -81,5 +96,111 @@ describe('ForbiddenError', () => {
 
   it('requireCan nega com ForbiddenError, tipado para o middleware reconhecer', () => {
     expect(() => requireCan(as('MEMBER'), 'audit.read')).toThrow(ForbiddenError)
+  })
+})
+
+describe('can por equipe: quem tem papéis diferentes em equipes diferentes', () => {
+  const leaderInAMemberInB = person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']])
+
+  it('user.create vale na equipe que a pessoa lidera e não na que ela só integra', () => {
+    expect(can(leaderInAMemberInB, 'user.create', A)).toBe(true)
+    expect(can(leaderInAMemberInB, 'user.create', B)).toBe(false)
+  })
+
+  it('sem equipe informada é só o portão de entrada: vale se alguma das equipes concede', () => {
+    expect(can(leaderInAMemberInB, 'user.create')).toBe(true)
+    expect(can(person('MEMBER', [[A, 'MEMBER'], [B, 'MEMBER']]), 'user.create')).toBe(false)
+  })
+
+  it('override concedido ao líder não vale na equipe onde a pessoa é membro', () => {
+    const me = person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']], { LEADER: { 'user.deactivate': true } })
+
+    expect(can(me, 'user.deactivate', A)).toBe(true)
+    expect(can(me, 'user.deactivate', B)).toBe(false)
+  })
+
+  it('override concedido ao membro não vale na equipe onde a pessoa é líder', () => {
+    const me = person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']], { MEMBER: { 'user.deactivate': true } })
+
+    expect(can(me, 'user.deactivate', A)).toBe(false)
+    expect(can(me, 'user.deactivate', B)).toBe(true)
+  })
+
+  it('os poderes não se somam entre equipes: com teamId, só conta o papel naquela equipe', () => {
+    const me = person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']], { MEMBER: { 'export.csv': false } })
+
+    expect(can(me, 'export.csv', A)).toBe(true)
+    expect(can(me, 'export.csv', B)).toBe(false)
+  })
+
+  it('quem não pertence à equipe não pode nela, nem com override', () => {
+    const me = person('MEMBER', [[A, 'MEMBER']], { MEMBER: { 'export.csv': true } })
+
+    expect(can(me, 'lead.write', B)).toBe(false)
+    expect(can(me, 'export.csv', B)).toBe(false)
+  })
+
+  it('quem não tem equipe e não é admin usa o padrão de membro', () => {
+    const teamless = person('MEMBER')
+
+    expect(can(teamless, 'lead.write')).toBe(true)
+    expect(can(teamless, 'user.create')).toBe(false)
+    expect(can(person('MEMBER', [], { MEMBER: { 'export.csv': true } }), 'export.csv')).toBe(true)
+  })
+
+  it('admin vale o padrão de fábrica em qualquer equipe e ignora overrides', () => {
+    const admin = person('TENANT_ADMIN', [], { LEADER: { 'audit.read': false, 'user.read': false }, MEMBER: { 'user.read': false } })
+
+    expect(can(admin, 'user.read', A)).toBe(true)
+    expect(can(admin, 'user.read')).toBe(true)
+    expect(can(admin, 'audit.read', B)).toBe(true)
+  })
+
+  it('requireCan com equipe nega com ForbiddenError na equipe sem o poder', () => {
+    expect(() => requireCan(leaderInAMemberInB, 'user.create', A)).not.toThrow()
+    expect(() => requireCan(leaderInAMemberInB, 'user.create', B)).toThrow(ForbiddenError)
+  })
+})
+
+describe('predicados sobre vínculos', () => {
+  const me = person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']])
+  const admin = person('TENANT_ADMIN')
+  const teamless = person('MEMBER')
+
+  it('roleIn devolve o papel na equipe, ou null sem vínculo', () => {
+    expect(roleIn(me, A)).toBe('LEADER')
+    expect(roleIn(me, B)).toBe('MEMBER')
+    expect(roleIn(me, 'team-c')).toBeNull()
+  })
+
+  it('canManage: admin gerencia qualquer equipe e o líder só as que lidera', () => {
+    expect(canManage(admin, { teamId: 'qualquer' })).toBe(true)
+    expect(canManage(me, { teamId: A })).toBe(true)
+    expect(canManage(me, { teamId: B })).toBe(false)
+    expect(canManage(teamless, { teamId: A })).toBe(false)
+  })
+
+  it('canSee: gestor, responsável ou membro da equipe; os demais não', () => {
+    expect(canSee(me, { teamId: A, assignedToId: null })).toBe(true)
+    expect(canSee(me, { teamId: B, assignedToId: null })).toBe(true)
+    expect(canSee(me, { teamId: 'team-c', assignedToId: null })).toBe(false)
+    expect(canSee(me, { teamId: 'team-c', assignedToId: 'me' })).toBe(true)
+    expect(canSee(admin, { teamId: 'team-c', assignedToId: null })).toBe(true)
+  })
+
+  it('managedTeamIds lista só as equipes que a pessoa lidera', () => {
+    expect(managedTeamIds(me)).toEqual([A])
+    expect(managedTeamIds(teamless)).toEqual([])
+  })
+
+  it('isManager: admin ou líder de alguma equipe', () => {
+    expect(isManager(admin)).toBe(true)
+    expect(isManager(me)).toBe(true)
+    expect(isManager(person('MEMBER', [[A, 'MEMBER']]))).toBe(false)
+    expect(isManager(teamless)).toBe(false)
+  })
+
+  it('líder sem vínculo não é gestor, mesmo com o papel legado em users.role', () => {
+    expect(isManager(person('TEAM_LEADER'))).toBe(false)
   })
 })

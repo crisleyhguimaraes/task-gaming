@@ -1,20 +1,11 @@
 import { getRequestHeaders } from '@tanstack/react-start/server'
 import { auth } from '#/lib/auth'
-import { capabilityOverridesFor } from './permissions.core'
+import type { Role } from '#/lib/access'
+import { loadAuthCtx } from './auth-context.core'
 import type { AuthCtx } from './roles'
 
 export async function getAuthCtx(): Promise<AuthCtx | null> {
   const s = await auth.api.getSession({ headers: getRequestHeaders() })
   if (!s) return null
-  const role = s.user.role as AuthCtx['role']
-  return {
-    userId: s.user.id,
-    tenantId: s.user.tenantId,
-    teamId: s.user.teamId ?? null,
-    role,
-    name: s.user.name,
-    impersonatedBy: s.session.impersonatedBy ?? null,
-    mustChangePassword: s.user.mustChangePassword ?? false,
-    capabilityOverrides: await capabilityOverridesFor(s.user.tenantId, role),
-  }
+  return loadAuthCtx({ ...s.user, role: s.user.role as Role }, s.session)
 }

@@ -1,23 +1,20 @@
 import { readFileSync } from 'node:fs'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { TransactionRollbackError, and, asc, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { Role } from '#/db/schema'
 import { db } from '#/db'
 import { auditEvents, roleCapabilities } from '#/db/schema'
+import type { Role, TeamRole } from '#/lib/access'
 import { listAuditPageFor } from './audit-view.core'
-import { capabilityOverridesFor, overridesByRoleFor, setCapabilityFor } from './permissions.core'
+import { overridesByRoleFor, overridesByTeamRole, setCapabilityFor } from './permissions.core'
 import type { AuthCtx } from './roles'
 import { ForbiddenError, can, nonDelegableCapabilities, requireCan } from './roles'
-import { addAdmin, makeTenant } from './test-fixtures'
+import { addAdmin, ctxFor, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
 let admin: AuthCtx
 
-const withOverrides = async (ctx: AuthCtx): Promise<AuthCtx> => ({
-  ...ctx,
-  capabilityOverrides: await capabilityOverridesFor(ctx.tenantId, ctx.role),
-})
+const overridesOf = async (tenantId: string, role: TeamRole) => (await overridesByTeamRole(tenantId))[role] ?? {}
 
 const permissionEvents = () =>
   db
@@ -39,17 +36,17 @@ afterAll(async () => {
 
 describe('permissões por tenant', () => {
   it('sem linhas no banco vale o padrão de fábrica', async () => {
-    const member = await withOverrides(f.members[0]!)
+    const member = await ctxFor(f.members[0]!.userId)
 
     expect(member.capabilityOverrides).toEqual({})
     expect(can(member, 'export.csv')).toBe(false)
-    expect(can(await withOverrides(f.leader), 'user.create')).toBe(true)
+    expect(can(await ctxFor(f.leader.userId), 'user.create')).toBe(true)
   })
 
   it('conceder export.csv ao membro vale para o contexto carregado do banco', async () => {
     await setCapabilityFor(admin, 'MEMBER', 'export.csv', true)
 
-    const member = await withOverrides(f.members[0]!)
+    const member = await ctxFor(f.members[0]!.userId)
 
     expect(can(member, 'export.csv')).toBe(true)
     expect(() => requireCan(member, 'export.csv')).not.toThrow()
@@ -57,9 +54,9 @@ describe('permissões por tenant', () => {
   })
 
   it('revogar user.create do líder faz requireCan negar com ForbiddenError', async () => {
-    await setCapabilityFor(admin, 'TEAM_LEADER', 'user.create', false)
+    await setCapabilityFor(admin, 'LEADER', 'user.create', false)
 
-    const leader = await withOverrides(f.leader)
+    const leader = await ctxFor(f.leader.userId)
 
     expect(() => requireCan(leader, 'user.create')).toThrow(ForbiddenError)
     expect(can(leader, 'invitation.manage')).toBe(true)
@@ -68,18 +65,18 @@ describe('permissões por tenant', () => {
   it('alterar de novo a mesma capability atualiza a linha em vez de duplicar', async () => {
     await setCapabilityFor(admin, 'MEMBER', 'export.csv', false)
 
-    expect(await capabilityOverridesFor(f.tenant.id, 'MEMBER')).toEqual({ 'export.csv': false })
+    expect(await overridesOf(f.tenant.id, 'MEMBER')).toEqual({ 'export.csv': false })
   })
 
   it('o ajuste de um tenant não vaza para outro', async () => {
     await setCapabilityFor(admin, 'MEMBER', 'export.csv', true)
 
-    expect(await capabilityOverridesFor(other.tenant.id, 'MEMBER')).toEqual({})
-    expect(can(await withOverrides(other.members[0]!), 'export.csv')).toBe(false)
+    expect(await overridesOf(other.tenant.id, 'MEMBER')).toEqual({})
+    expect(can(await ctxFor(other.members[0]!.userId), 'export.csv')).toBe(false)
   })
 
   it('o ajuste de um papel não vaza para outro papel', async () => {
-    expect(await capabilityOverridesFor(f.tenant.id, 'TEAM_LEADER')).not.toHaveProperty('export.csv')
+    expect(await overridesOf(f.tenant.id, 'LEADER')).not.toHaveProperty('export.csv')
   })
 })
 
@@ -87,7 +84,7 @@ describe('setCapabilityFor: validações', () => {
   it.each<Role>(['TENANT_ADMIN', 'SUPER_ADMIN'])('não altera permissões de %s', async (role) => {
     await expect(setCapabilityFor(admin, role as 'MEMBER', 'audit.read', false)).rejects.toThrow('administrador')
 
-    expect(await capabilityOverridesFor(f.tenant.id, role)).toEqual({})
+    expect(await overridesByTeamRole(f.tenant.id)).not.toHaveProperty(role)
   })
 
   it('recusa capability desconhecida', async () => {
@@ -95,9 +92,9 @@ describe('setCapabilityFor: validações', () => {
   })
 
   it.each(nonDelegableCapabilities)('não delega %s a papéis do tenant', async (capability) => {
-    await expect(setCapabilityFor(admin, 'TEAM_LEADER', capability, true)).rejects.toThrow('delegada')
+    await expect(setCapabilityFor(admin, 'LEADER', capability, true)).rejects.toThrow('delegada')
 
-    expect(await capabilityOverridesFor(f.tenant.id, 'TEAM_LEADER')).not.toHaveProperty(capability)
+    expect(await overridesOf(f.tenant.id, 'LEADER')).not.toHaveProperty(capability)
   })
 
   it('exige permissions.manage de quem altera', async () => {
@@ -107,11 +104,11 @@ describe('setCapabilityFor: validações', () => {
 
 describe('overridesByRoleFor', () => {
   it('devolve os ajustes dos dois papéis editáveis, só para quem gerencia permissões', async () => {
-    await setCapabilityFor(admin, 'TEAM_LEADER', 'user.deactivate', true)
+    await setCapabilityFor(admin, 'LEADER', 'user.deactivate', true)
 
     const byRole = await overridesByRoleFor(admin)
 
-    expect(byRole.TEAM_LEADER).toMatchObject({ 'user.deactivate': true })
+    expect(byRole.LEADER).toMatchObject({ 'user.deactivate': true })
     expect(byRole.MEMBER).not.toHaveProperty('user.deactivate')
     await expect(overridesByRoleFor(f.members[0]!)).rejects.toThrow(ForbiddenError)
   })
@@ -147,10 +144,10 @@ describe('capability não delegável gravada direto no banco', () => {
   it('não vale: líder com audit.read gravado continua sem ver a auditoria', async () => {
     const g = await makeTenant(0)
     try {
-      await db.insert(roleCapabilities).values({ tenantId: g.tenant.id, role: 'TEAM_LEADER', capability: 'audit.read', allowed: true })
-      const leader = await withOverrides(g.leader)
+      await db.insert(roleCapabilities).values({ tenantId: g.tenant.id, role: 'LEADER', capability: 'audit.read', allowed: true })
+      const leader = await ctxFor(g.leader.userId)
 
-      expect(leader.capabilityOverrides).toEqual({ 'audit.read': true })
+      expect(leader.capabilityOverrides).toEqual({ LEADER: { 'audit.read': true } })
       expect(can(leader, 'audit.read')).toBe(false)
       await expect(listAuditPageFor(leader, {})).rejects.toThrow(ForbiddenError)
     } finally {
@@ -165,12 +162,47 @@ describe('migração que limpa overrides não delegáveis', () => {
     const migration = readFileSync(new URL('../../drizzle/0008_limpa_overrides_nao_delegaveis.sql', import.meta.url), 'utf8')
     try {
       await db.insert(roleCapabilities).values(
-        ['tenant.configure', 'team.manage', 'audit.read', 'pipeline.configure', 'export.csv'].map((capability) => ({ tenantId: g.tenant.id, role: 'TEAM_LEADER' as const, capability, allowed: true })),
+        ['tenant.configure', 'team.manage', 'audit.read', 'pipeline.configure', 'export.csv'].map((capability) => ({ tenantId: g.tenant.id, role: 'LEADER' as const, capability, allowed: true })),
       )
 
       await db.execute(sql.raw(migration))
 
-      expect(await capabilityOverridesFor(g.tenant.id, 'TEAM_LEADER')).toEqual({ 'export.csv': true })
+      expect(await overridesOf(g.tenant.id, 'LEADER')).toEqual({ 'export.csv': true })
+    } finally {
+      await g.cleanup()
+    }
+  })
+})
+
+describe('migração que passa os overrides para o papel de equipe', () => {
+  it('converte TEAM_LEADER em LEADER, preserva MEMBER e descarta linha de admin', async () => {
+    const g = await makeTenant(0)
+    const migration = readFileSync(new URL('../../drizzle/0012_papel_de_equipe_nos_overrides.sql', import.meta.url), 'utf8')
+    const rowsOf = (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) =>
+      tx.select({ role: roleCapabilities.role, capability: roleCapabilities.capability, allowed: roleCapabilities.allowed }).from(roleCapabilities).where(eq(roleCapabilities.tenantId, g.tenant.id)).orderBy(asc(roleCapabilities.capability))
+    let migrated: Awaited<ReturnType<typeof rowsOf>> = []
+    try {
+      // DDL é transacional: volta a coluna ao tipo antigo, roda a migração e desfaz tudo no fim.
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.execute(sql`ALTER TABLE role_capabilities ALTER COLUMN role TYPE role USING (CASE role::text WHEN 'LEADER' THEN 'TEAM_LEADER' ELSE role::text END)::role`)
+          await tx.execute(sql`
+            INSERT INTO role_capabilities (tenant_id, role, capability, allowed) VALUES
+              (${g.tenant.id}, 'TEAM_LEADER', 'export.csv', true),
+              (${g.tenant.id}, 'MEMBER', 'lead.import', true),
+              (${g.tenant.id}, 'TENANT_ADMIN', 'user.read', false)`)
+
+          await tx.execute(sql.raw(migration))
+
+          migrated = await rowsOf(tx)
+          tx.rollback()
+        }),
+      ).rejects.toThrow(TransactionRollbackError)
+
+      expect(migrated).toEqual([
+        { role: 'LEADER', capability: 'export.csv', allowed: true },
+        { role: 'MEMBER', capability: 'lead.import', allowed: true },
+      ])
     } finally {
       await g.cleanup()
     }

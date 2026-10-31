@@ -1,7 +1,9 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { teamMembers, teams, tenants, users } from '#/db/schema'
+import type { TeamRole } from '#/lib/access'
 import { auth } from '#/lib/auth'
+import { loadAuthCtx } from './auth-context.core'
 import { insertDefaultStages } from './stages.core'
 import type { AuthCtx } from './roles'
 import { teamRoleOf } from './team-members.core'
@@ -13,10 +15,22 @@ async function linkToTeam(tenantId: string, team: Team | null, role: AuthCtx['ro
   await db.insert(teamMembers).values({ teamId: team.id, userId, tenantId, role: teamRoleOf(role) })
 }
 
+/** O contexto que o servidor montaria para a pessoa agora, lido do banco pelo mesmo carregador da sessão. */
+export async function ctxFor(userId: string): Promise<AuthCtx> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId))
+  return loadAuthCtx(user!, { impersonatedBy: null })
+}
+
 async function insertUser(tenantId: string, team: Team | null, role: AuthCtx['role'], id: string, name: string): Promise<AuthCtx> {
   await db.insert(users).values({ id, name, email: `${id}@test.local`, role, tenantId, teamId: team?.id ?? null })
   await linkToTeam(tenantId, team, role, id)
-  return { userId: id, tenantId, teamId: team?.id ?? null, role, name, impersonatedBy: null, mustChangePassword: false }
+  return ctxFor(id)
+}
+
+/** Vínculo extra, fora do dual-write: é assim que a pessoa passa a ter mais de uma equipe. */
+export async function joinTeam(f: { tenant: { id: string } }, userId: string, team: Team, role: TeamRole = 'MEMBER') {
+  await db.insert(teamMembers).values({ teamId: team.id, userId, tenantId: f.tenant.id, role })
+  return ctxFor(userId)
 }
 
 export function addAdmin(f: { tenant: { id: string; slug: string }; team: Team }) {

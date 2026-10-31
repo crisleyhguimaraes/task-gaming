@@ -79,7 +79,7 @@ describe('createInvitationCore', () => {
 
 describe('desativar e reativar usuário', () => {
   const password = 'senha-forte-123'
-  const deactivators = { 'user.deactivate': true }
+  const deactivators = { LEADER: { 'user.deactivate': true } }
 
   const newUser = (label: string, tenant = mine) => addLoginUser(tenant, { label, password })
 
@@ -188,7 +188,7 @@ describe('desativar e reativar usuário', () => {
 })
 
 describe('updateUserCore com user.update delegado a líder', () => {
-  const leader = (): AuthCtx => ({ ...mine.leader, capabilityOverrides: { 'user.update': true } })
+  const leader = (): AuthCtx => ({ ...mine.leader, capabilityOverrides: { LEADER: { 'user.update': true } } })
 
   it('não mexe em admin nem promove ninguém a admin', async () => {
     const member = await addUser(mine, { role: 'MEMBER', team: mine.team })
@@ -212,7 +212,7 @@ describe('updateUserCore com user.update delegado a líder', () => {
 
 describe('criar usuário e convidar com a capability delegada a quem não é líder', () => {
   const password = 'senha-forte-123'
-  const delegated: AuthCtx['capabilityOverrides'] = { 'user.create': true, 'invitation.manage': true }
+  const delegated: AuthCtx['capabilityOverrides'] = { MEMBER: { 'user.create': true, 'invitation.manage': true } }
   const member = (): AuthCtx => ({ ...mine.members[0]!, capabilityOverrides: delegated })
   const uniqueEmail = (label: string) => `${label}-${Math.random().toString(36).slice(2, 8)}@test.local`
   let otherTeamId: string
@@ -255,7 +255,7 @@ describe('criar usuário e convidar com a capability delegada a quem não é lí
 
 describe('líder sem equipe', () => {
   const password = 'senha-forte-123'
-  const delegated: AuthCtx['capabilityOverrides'] = { 'user.update': true, 'user.deactivate': true, 'user.create': true, 'invitation.manage': true }
+  const delegated: AuthCtx['capabilityOverrides'] = { MEMBER: { 'user.update': true, 'user.deactivate': true, 'user.create': true, 'invitation.manage': true } }
   const teamlessLeader = async (): Promise<AuthCtx> => ({ ...(await addUser(mine, { role: 'TEAM_LEADER', team: null })), capabilityOverrides: delegated })
   const uniqueEmail = (label: string) => `${label}-${Math.random().toString(36).slice(2, 8)}@test.local`
 
@@ -303,7 +303,7 @@ describe('listUsersFor', () => {
   })
 
   it('usuário sem equipe com permissão de ler usuários vê lista vazia, sem erro', async () => {
-    const teamless = { ...(await addUser(mine, { role: 'MEMBER', team: null })), capabilityOverrides: { 'user.read': true } }
+    const teamless = { ...(await addUser(mine, { role: 'MEMBER', team: null })), capabilityOverrides: { MEMBER: { 'user.read': true } } }
 
     const result = await listUsersFor(teamless)
 

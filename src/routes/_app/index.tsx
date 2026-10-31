@@ -10,6 +10,7 @@ import { Pill, StatTile } from '#/components/StatTile'
 import { appRoute } from '#/lib/app-route'
 import { fmtClock, fmtDuration, roleLabel } from '#/lib/format'
 import { useElapsed } from '#/lib/useElapsed'
+import { isManager } from '#/server/auth-context'
 import { levelFor } from '#/server/levels'
 import { getToday, startTask } from '#/server/tasks'
 
@@ -25,7 +26,7 @@ function Today() {
   const [error, setError] = React.useState<string | null>(null)
   const level = levelFor(d.totalPoints)
   const goalPct = Math.min(100, Math.round((d.progress.points / d.settings.dailyGoalPoints) * 100))
-  const manager = me.role !== 'MEMBER'
+  const manager = isManager(me)
 
   async function pull(taskId: string) {
     try {

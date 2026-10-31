@@ -9,7 +9,7 @@ import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
-import { assertMember, inTeams, inTenantTeams } from './scope'
+import { assertMember, inTeams, usersInScope } from './scope'
 import { scoreTask } from './scoring'
 import { localDay, localDayOf, tenantSettings } from './stats'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
@@ -478,5 +478,5 @@ export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
 
 /** Quem pode aparecer como responsável no filtro do board, no mesmo escopo da lista. */
 export function boardMembersFor(me: AuthCtx, teamId?: string) {
-  return db.select({ id: users.id, name: users.name }).from(users).where(inTenantTeams(users, me, { only: teamId })).orderBy(asc(users.name))
+  return db.select({ id: users.id, name: users.name }).from(users).where(usersInScope(me, { only: teamId })).orderBy(asc(users.name))
 }

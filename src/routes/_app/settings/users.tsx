@@ -4,7 +4,7 @@ import * as React from 'react'
 import { roleLabel } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
 import { cancelInvitation, createInvitation, listInvitations, resendInvitation } from '#/server/invitations'
-import { can } from '#/server/roles'
+import { can, isAdmin } from '#/server/roles'
 import { createUser, deactivateUser, listUsers, reactivateUser, updateUser } from '#/server/users'
 
 export const Route = createFileRoute('/_app/settings/users')({
@@ -23,7 +23,7 @@ function Users() {
   const [mode, setMode] = React.useState<'invite' | 'create'>('invite')
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
-  const isLeader = me.role === 'TEAM_LEADER'
+  const restricted = !isAdmin(me)
   const canUpdate = can(me, 'user.update')
   const canDeactivate = can(me, 'user.deactivate')
 
@@ -54,7 +54,7 @@ function Users() {
           email: String(f.get('email')),
           password: String(f.get('password')),
           teamId: String(f.get('teamId')) || null,
-          role: (isLeader ? 'MEMBER' : String(f.get('role'))) as (typeof ROLES)[number],
+          role: (restricted ? 'MEMBER' : String(f.get('role'))) as (typeof ROLES)[number],
         },
       }).then(() => form.reset()),
     )
@@ -69,7 +69,7 @@ function Users() {
         data: {
           email: String(f.get('email')),
           teamId: String(f.get('teamId')) || null,
-          role: (isLeader ? 'MEMBER' : String(f.get('role'))) as (typeof ROLES)[number],
+          role: (restricted ? 'MEMBER' : String(f.get('role'))) as (typeof ROLES)[number],
         },
       }).then(() => form.reset()),
     )
@@ -79,12 +79,12 @@ function Users() {
     <>
       <div className="space-y-1">
         <label htmlFor="teamId">Equipe</label>
-        <select id="teamId" name="teamId" defaultValue={isLeader ? (me.teamId ?? '') : ''} disabled={isLeader}>
-          {!isLeader && <option value="">Sem equipe</option>}
+        <select id="teamId" name="teamId" defaultValue={restricted ? (me.teamId ?? '') : ''} disabled={restricted}>
+          {!restricted && <option value="">Sem equipe</option>}
           {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
       </div>
-      {!isLeader && (
+      {!restricted && (
         <div className="space-y-1">
           <label htmlFor="role">Papel</label>
           <select id="role" name="role" defaultValue="MEMBER">

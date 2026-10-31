@@ -1,22 +1,25 @@
 import { and, eq } from 'drizzle-orm'
 import { db } from '#/db'
-import type { Role } from '#/db/schema'
+import type { TeamRole } from '#/lib/access'
+import { teamRoles } from '#/lib/access'
 import { roleCapabilities } from '#/db/schema'
 import { recordAudit } from './audit.core'
-import type { AuthCtx, Capability, CapabilityOverrides, OverridableRole } from './roles'
-import { can, capabilities, fail, nonDelegableCapabilities, overridableRoles, requireCan } from './roles'
+import type { AuthCtx, Capability, CapabilityOverrides } from './roles'
+import { capabilities, fail, nonDelegableCapabilities, requireCan, teamRoleCan } from './roles'
 
-export async function capabilityOverridesFor(tenantId: string, role: Role): Promise<CapabilityOverrides> {
+export async function overridesByTeamRole(tenantId: string): Promise<AuthCtx['capabilityOverrides']> {
   const rows = await db
-    .select({ capability: roleCapabilities.capability, allowed: roleCapabilities.allowed })
+    .select({ role: roleCapabilities.role, capability: roleCapabilities.capability, allowed: roleCapabilities.allowed })
     .from(roleCapabilities)
-    .where(and(eq(roleCapabilities.tenantId, tenantId), eq(roleCapabilities.role, role)))
-  return Object.fromEntries(rows.map((r) => [r.capability, r.allowed]))
+    .where(eq(roleCapabilities.tenantId, tenantId))
+  const byRole: Partial<Record<TeamRole, CapabilityOverrides>> = {}
+  for (const { role, capability, allowed } of rows) byRole[role] = { ...byRole[role], [capability]: allowed }
+  return byRole
 }
 
-export async function setCapabilityFor(me: AuthCtx, role: OverridableRole, capability: Capability, allowed: boolean) {
+export async function setCapabilityFor(me: AuthCtx, role: TeamRole, capability: Capability, allowed: boolean) {
   requireCan(me, 'permissions.manage')
-  if (!overridableRoles.includes(role)) fail('Permissões de administrador não podem ser alteradas')
+  if (!teamRoles.includes(role)) fail('Permissões de administrador não podem ser alteradas')
   if (!capabilities.includes(capability)) fail('Permissão desconhecida')
   if (nonDelegableCapabilities.includes(capability)) fail('Esta permissão não pode ser delegada')
 
@@ -25,7 +28,7 @@ export async function setCapabilityFor(me: AuthCtx, role: OverridableRole, capab
       .select({ allowed: roleCapabilities.allowed })
       .from(roleCapabilities)
       .where(and(eq(roleCapabilities.tenantId, me.tenantId), eq(roleCapabilities.role, role), eq(roleCapabilities.capability, capability)))
-    const was = row?.allowed ?? can({ role }, capability)
+    const was = row?.allowed ?? teamRoleCan(role, capability, {})
     await tx
       .insert(roleCapabilities)
       .values({ tenantId: me.tenantId, role, capability, allowed })
@@ -37,6 +40,5 @@ export async function setCapabilityFor(me: AuthCtx, role: OverridableRole, capab
 
 export async function overridesByRoleFor(me: AuthCtx) {
   requireCan(me, 'permissions.manage')
-  const [TEAM_LEADER, MEMBER] = await Promise.all([capabilityOverridesFor(me.tenantId, 'TEAM_LEADER'), capabilityOverridesFor(me.tenantId, 'MEMBER')])
-  return { TEAM_LEADER, MEMBER }
+  return overridesByTeamRole(me.tenantId)
 }

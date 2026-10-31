@@ -1,16 +1,20 @@
 // Regras de papel/visibilidade. Puro: sem db, sem imports de servidor (vai pro bundle do cliente via middleware).
-import type { Role } from '#/db/schema'
+import type { Role, TeamRole } from '#/lib/access'
+
+export type Membership = { teamId: string; role: TeamRole }
 
 export type AuthCtx = {
   userId: string
   tenantId: string
+  // NOTE: alias transitório (equipe do primeiro vínculo); a 1b-ii o remove quando os últimos usos passarem a ler `memberships`.
   teamId: string | null
   role: Role
+  memberships: ReadonlyArray<Membership>
   name: string
   impersonatedBy: string | null
   mustChangePassword: boolean
-  /** Ajustes do tenant sobre o papel do usuário (role_capabilities). Ausente = padrão de fábrica. */
-  capabilityOverrides?: CapabilityOverrides
+  /** Ajustes do tenant por papel dentro da equipe (role_capabilities). Papel ausente = padrão de fábrica. */
+  capabilityOverrides: Partial<Record<TeamRole, CapabilityOverrides>>
 }
 
 export function fail(message: string): never {
@@ -59,30 +63,71 @@ export const capabilities = Object.keys(defaultGrants) as Array<Capability>
 
 export type CapabilityOverrides = Partial<Record<Capability, boolean>>
 
-/** Admin fica de fora de propósito: ninguém consegue trancar o próprio tenant. */
-export const overridableRoles = ['TEAM_LEADER', 'MEMBER'] as const satisfies ReadonlyArray<Role>
-export type OverridableRole = (typeof overridableRoles)[number]
+export type CapabilityScope = 'tenant' | 'team'
 
-/** Escopo de tenant ou plataforma: override é por papel, sem equipe, então delegar daria a um líder poder sobre a organização toda. */
-export const nonDelegableCapabilities: ReadonlyArray<Capability> = ['tenant.manage', 'tenant.configure', 'team.manage', 'permissions.manage', 'audit.read', 'pipeline.configure']
+/**
+ * `tenant`: vale para a organização toda, então não é delegável (override é por papel, e delegar daria a um líder poder sobre o tenant).
+ * `team`: vale dentro de uma equipe e o tenant pode ajustar por papel.
+ */
+export const capabilityScope: Record<Capability, CapabilityScope> = {
+  'tenant.manage': 'tenant',
+  'tenant.configure': 'tenant',
+  'team.manage': 'tenant',
+  'user.read': 'team',
+  'user.create': 'team',
+  'user.update': 'team',
+  'user.deactivate': 'team',
+  'invitation.manage': 'team',
+  'permissions.manage': 'tenant',
+  'audit.read': 'tenant',
+  'task.restore': 'team',
+  'export.csv': 'team',
+  'pipeline.configure': 'tenant',
+  'lead.write': 'team',
+  'lead.import': 'team',
+  'opportunity.write': 'team',
+  'opportunity.reopen': 'team',
+}
 
+export const nonDelegableCapabilities = capabilities.filter((c) => capabilityScope[c] === 'tenant')
+
+const granteeOf: Record<TeamRole, Role> = { LEADER: 'TEAM_LEADER', MEMBER: 'MEMBER' }
 const grantedTo = (capability: Capability): ReadonlyArray<Role> => defaultGrants[capability]
 
-/** Override de capability não delegável é ignorado: se já estiver gravado, não vale. */
-export const can = (ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) => {
-  const override = nonDelegableCapabilities.includes(capability) ? undefined : ctx.capabilityOverrides?.[capability]
-  return override ?? grantedTo(capability).includes(ctx.role)
+/** O que o papel pode numa equipe: override do tenant sobre o padrão, e override de capability de escopo `tenant` nunca vale, mesmo gravado. */
+export function teamRoleCan(teamRole: TeamRole, capability: Capability, overrides: AuthCtx['capabilityOverrides']) {
+  const override = capabilityScope[capability] === 'team' ? overrides[teamRole]?.[capability] : undefined
+  return override ?? grantedTo(capability).includes(granteeOf[teamRole])
 }
 
-export function requireCan(ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) {
-  if (!can(ctx, capability)) forbid()
+type CanCtx = Pick<AuthCtx, 'role' | 'memberships' | 'capabilityOverrides'>
+
+/**
+ * Sem `teamId` é só o portão de entrada ("pode em alguma equipe"): quem lista dados filtra por `teamIdsOf(me, capability)`.
+ * Quem não tem equipe e não é admin vale como membro, o padrão de quem ainda não foi vinculado.
+ */
+export function can(me: CanCtx, capability: Capability, teamId?: string) {
+  if (isAdmin(me)) return grantedTo(capability).includes(me.role)
+  const roles = teamId === undefined ? entryRoles(me) : [roleIn(me, teamId)]
+  return roles.some((role) => role !== null && teamRoleCan(role, capability, me.capabilityOverrides))
 }
 
-export const isAdmin = (me: AuthCtx) => me.role === 'SUPER_ADMIN' || me.role === 'TENANT_ADMIN'
+const entryRoles = (me: CanCtx): ReadonlyArray<TeamRole> => (me.memberships.length ? me.memberships.map((m) => m.role) : ['MEMBER'])
 
-/** Admin gerencia tudo do tenant; líder gerencia o próprio time. */
-export const canManage = (me: AuthCtx, task: { teamId: string }) =>
-  isAdmin(me) || (me.role === 'TEAM_LEADER' && me.teamId === task.teamId)
+export function requireCan(me: CanCtx, capability: Capability, teamId?: string) {
+  if (!can(me, capability, teamId)) forbid()
+}
 
-export const canSee = (me: AuthCtx, task: { teamId: string; assignedToId: string | null }) =>
-  canManage(me, task) || task.assignedToId === me.userId || task.teamId === me.teamId
+export const isAdmin = (me: Pick<AuthCtx, 'role'>) => me.role === 'SUPER_ADMIN' || me.role === 'TENANT_ADMIN'
+
+export const roleIn = (me: Pick<AuthCtx, 'memberships'>, teamId: string): TeamRole | null => me.memberships.find((m) => m.teamId === teamId)?.role ?? null
+
+/** Admin gerencia tudo do tenant; líder gerencia as equipes que lidera. */
+export const canManage = (me: Pick<AuthCtx, 'role' | 'memberships'>, record: { teamId: string }) => isAdmin(me) || roleIn(me, record.teamId) === 'LEADER'
+
+export const canSee = (me: Pick<AuthCtx, 'userId' | 'role' | 'memberships'>, record: { teamId: string; assignedToId: string | null }) =>
+  canManage(me, record) || record.assignedToId === me.userId || roleIn(me, record.teamId) !== null
+
+export const managedTeamIds = (me: Pick<AuthCtx, 'memberships'>) => me.memberships.filter((m) => m.role === 'LEADER').map((m) => m.teamId)
+
+export const isManager = (me: Pick<AuthCtx, 'role' | 'memberships'>) => isAdmin(me) || managedTeamIds(me).length > 0

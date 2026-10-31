@@ -7,6 +7,7 @@ import { appRoute } from '#/lib/app-route'
 import { formatCents, toCents } from '#/lib/pipeline'
 import { getOpportunity, moveOpportunity, updateOpportunity } from '#/server/pipeline'
 import { listNotes } from '#/server/notes'
+import { canManage } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/opportunities/$opportunityId')({
@@ -128,7 +129,7 @@ function OpportunityPage() {
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-neutral-300">Follow-ups</h2>
-          {me.role !== 'MEMBER' && (
+          {canManage(me, opp) && (
             <Link to="/tasks/new" search={{ opportunityId: opp.id }} className="btn-primary px-3 py-2 text-xs">
               <Plus className="h-4 w-4" /> Novo follow-up
             </Link>

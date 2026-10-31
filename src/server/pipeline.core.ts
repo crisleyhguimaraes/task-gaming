@@ -11,7 +11,7 @@ import { canEditRecord, canSeeRecord, lostReasonFor, planMove } from '#/lib/oppo
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { can, fail, forbid, isAdmin, requireCan } from './roles'
-import { assertMember, inTeams, inTenantTeams } from './scope'
+import { assertMember, inTeams, usersInScope } from './scope'
 import { listStagesFor } from './stages.core'
 import type { Tx } from './tx'
 
@@ -21,7 +21,7 @@ const QUALIFIED: LeadStatus = 'qualified'
 export type OpportunityData = { title: string; amountCents: number; expectedCloseDate?: string | null; ownerId?: string | null }
 export type OpportunityEdit = { title: string; amountCents: number; expectedCloseDate: string | null; ownerId: string | null }
 
-const canWriteOpportunity = (me: AuthCtx, record: Owned) => can(me, 'opportunity.write') && canEditRecord(me, record)
+const canWriteOpportunity = (me: AuthCtx, record: Owned) => can(me, 'opportunity.write', record.teamId) && canEditRecord(me, record)
 
 function assertValidFields({ title, amountCents }: Pick<OpportunityData, 'title' | 'amountCents'>) {
   if (title.trim().length < MIN_TITLE_LENGTH) fail(`O título precisa ter ao menos ${MIN_TITLE_LENGTH} caracteres`)
@@ -141,7 +141,7 @@ export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toS
       return reordered!
     }
 
-    if (plan.reopens) requireCan(me, 'opportunity.reopen')
+    if (plan.reopens) requireCan(me, 'opportunity.reopen', opp.teamId)
     const lostReason = lostReasonFor(target, options.lostReason)
     const [moved] = await tx
       .update(opportunities)
@@ -193,7 +193,7 @@ export async function pipelineFiltersFor(me: AuthCtx, teamId?: string) {
     db
       .select({ id: users.id, name: users.name })
       .from(users)
-      .where(inTenantTeams(users, me, { only: isAdmin(me) ? teamId : undefined }))
+      .where(usersInScope(me, { only: isAdmin(me) ? teamId : undefined }))
       .orderBy(asc(users.name)),
   ])
   return { teams: teamList, owners }
@@ -277,6 +277,6 @@ export async function getOpportunityFor(me: AuthCtx, opportunityId: string) {
     followUps,
     stages,
     canWrite,
-    canReopen: canWrite && can(me, 'opportunity.reopen'),
+    canReopen: canWrite && can(me, 'opportunity.reopen', row.opp.teamId),
   }
 }

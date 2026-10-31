@@ -12,7 +12,7 @@ import { fmtClock } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
 import { downloadCsv } from '#/lib/download-csv'
 import { exportTasksCsv } from '#/server/exports'
-import { can } from '#/server/roles'
+import { can, isManager } from '#/server/roles'
 import { finishTask, finishTaskManually, listTasks, moveTask, pauseTask, returnToPool, startTask, taskFilterSchema } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/board')({
@@ -100,7 +100,7 @@ function Board() {
           {can(me, 'export.csv') && (
             <button onClick={exportCsv} className="btn-ghost px-3 py-2 text-xs"><Download className="h-4 w-4" /> CSV</button>
           )}
-          {me.role !== 'MEMBER' && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Tarefa</Link>}
+          {isManager(me) && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Tarefa</Link>}
         </div>
       </div>
 

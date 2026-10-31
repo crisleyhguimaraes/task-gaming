@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { taskTimeLogs, tasks, teams, tenants, users } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { isAdmin } from './roles'
+import { isManager } from './roles'
 import { inTenantTeams } from './scope'
 
 const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
@@ -168,8 +168,7 @@ export async function attentionCount(me: AuthCtx) {
         .from(tasks)
         .where(and(eq(tasks.teamId, me.teamId), eq(tasks.status, 'pending'), isNull(tasks.assignedToId), isNull(tasks.challengeId)))
     : [{ n: 0 }]
-  const manages = isAdmin(me) || me.role === 'TEAM_LEADER'
-  const [val] = manages
+  const [val] = isManager(me)
     ? await db
         .select({ n: sql<number>`count(*)::int` })
         .from(tasks)

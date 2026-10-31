@@ -54,7 +54,17 @@ describe('lostReasonFor', () => {
 })
 
 describe('canEditRecord', () => {
-  const ctx = (userId: string, role: AuthCtx['role'], teamId: string | null): AuthCtx => ({ userId, tenantId: 't', teamId, role, name: userId, impersonatedBy: null, mustChangePassword: false })
+  const ctx = (userId: string, role: AuthCtx['role'], teamId: string | null): AuthCtx => ({
+    userId,
+    tenantId: 't',
+    teamId,
+    role,
+    memberships: teamId ? [{ teamId, role: role === 'TEAM_LEADER' ? 'LEADER' : 'MEMBER' }] : [],
+    name: userId,
+    impersonatedBy: null,
+    mustChangePassword: false,
+    capabilityOverrides: {},
+  })
   const admin = ctx('admin', 'TENANT_ADMIN', null)
   const leader = ctx('leader', 'TEAM_LEADER', 'a')
   const member = ctx('member', 'MEMBER', 'a')

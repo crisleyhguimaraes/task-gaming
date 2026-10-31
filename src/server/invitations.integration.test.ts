@@ -60,7 +60,7 @@ describe('listagem de convites', () => {
   })
 
   it('usuário sem equipe com permissão de convidar vê lista vazia, sem erro', async () => {
-    const teamless = { ...(await addUser(f, { role: 'MEMBER', team: null })), capabilityOverrides: { 'invitation.manage': true } }
+    const teamless = { ...(await addUser(f, { role: 'MEMBER', team: null })), capabilityOverrides: { MEMBER: { 'invitation.manage': true } } }
 
     expect(await listInvitationsFor(teamless)).toEqual([])
   })

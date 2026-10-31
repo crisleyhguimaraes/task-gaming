@@ -5,9 +5,9 @@ import { sessions, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
-import type { AuthCtx } from './roles'
+import type { AuthCtx, Capability } from './roles'
 import { fail, requireCan } from './roles'
-import { assertWithinScope, inTenantTeams } from './scope'
+import { assertWithinScope, usersInScope } from './scope'
 import { assertTeamInTenant } from './teams.core'
 import { addMember, removeMember, teamRoleOf } from './team-members.core'
 import { closeLogDuration } from './time'
@@ -15,10 +15,10 @@ import type { Reader, Tx } from './tx'
 
 export type AssignableRole = Exclude<Role, 'SUPER_ADMIN'>
 
-async function findUserInScope(tx: Reader, me: AuthCtx, userId: string) {
+async function findUserInScope(tx: Reader, me: AuthCtx, userId: string, capability: Capability) {
   const [u] = await tx.select().from(users).where(and(eq(users.id, userId), eq(users.tenantId, me.tenantId), ne(users.role, 'SUPER_ADMIN')))
   if (!u) fail('Usuário não encontrado')
-  assertWithinScope(me, u)
+  assertWithinScope(me, u, capability)
   return u
 }
 
@@ -28,7 +28,7 @@ export async function listUsersFor(me: AuthCtx) {
     .select({ id: users.id, name: users.name, email: users.email, role: users.role, banned: users.banned, teamId: users.teamId, teamName: teams.name })
     .from(users)
     .leftJoin(teams, eq(teams.id, users.teamId))
-    .where(and(inTenantTeams(users, me), ne(users.role, 'SUPER_ADMIN')))
+    .where(and(usersInScope(me, { capability: 'user.read' }), ne(users.role, 'SUPER_ADMIN')))
     .orderBy(asc(users.name))
   const teamList = await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
   return { users: list, teams: teamList }
@@ -59,9 +59,9 @@ async function leaveTeam(tx: Tx, me: AuthCtx, user: { id: string; teamId: string
 export async function updateUserCore(me: AuthCtx, data: { userId: string; teamId: string | null; role: AssignableRole }) {
   await db.transaction(async (tx) => {
     await assertTeamInTenant(tx, me.tenantId, data.teamId)
-    const u = await findUserInScope(tx, me, data.userId)
+    const u = await findUserInScope(tx, me, data.userId, 'user.update')
     if (u.id === me.userId && u.role !== data.role) fail('Você não pode alterar o próprio papel')
-    assertWithinScope(me, { role: data.role, teamId: data.teamId })
+    assertWithinScope(me, { role: data.role, teamId: data.teamId }, 'user.update')
     if (u.teamId !== data.teamId) await leaveTeam(tx, me, u)
     const [updated] = await tx.update(users).set({ teamId: data.teamId, role: data.role }).where(eq(users.id, u.id)).returning()
     if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: u.id, role: teamRoleOf(data.role) })
@@ -74,7 +74,7 @@ export async function deactivateUserCore(me: AuthCtx, userId: string, reason?: s
   requireCan(me, 'user.deactivate')
   if (userId === me.userId) fail('Você não pode desativar a si mesmo')
   await db.transaction(async (tx) => {
-    const u = await findUserInScope(tx, me, userId)
+    const u = await findUserInScope(tx, me, userId, 'user.deactivate')
     if (u.banned) return
     await tx.update(users).set({ banned: true, banReason: reason || null }).where(eq(users.id, u.id))
     await tx.delete(sessions).where(eq(sessions.userId, u.id))
@@ -86,7 +86,7 @@ export async function deactivateUserCore(me: AuthCtx, userId: string, reason?: s
 export async function reactivateUserCore(me: AuthCtx, userId: string) {
   requireCan(me, 'user.deactivate')
   await db.transaction(async (tx) => {
-    const u = await findUserInScope(tx, me, userId)
+    const u = await findUserInScope(tx, me, userId, 'user.deactivate')
     if (!u.banned) return
     await tx.update(users).set({ banned: false, banReason: null, banExpires: null }).where(eq(users.id, u.id))
     await recordAudit(tx, me, { action: 'user.reactivated', entityType: 'user', entityId: u.id })
@@ -94,7 +94,7 @@ export async function reactivateUserCore(me: AuthCtx, userId: string) {
 }
 
 export async function createUserFor(me: AuthCtx, data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole }) {
-  assertWithinScope(me, data)
+  assertWithinScope(me, data, 'user.create')
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const { user } = await auth.api.createUser({
     body: {

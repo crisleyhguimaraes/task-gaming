@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
 import { appRoute } from '#/lib/app-route'
 import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
+import { isManager } from '#/server/auth-context'
 import { createChallenge } from '#/server/challenges'
 import { getTaskFormOptions } from '#/server/tasks'
 
@@ -17,7 +18,7 @@ function NewChallenge() {
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const myTeams = me.role === 'MEMBER' ? teams.filter((t) => t.id === me.teamId) : teams
+  const myTeams = isManager(me) ? teams : teams.filter((t) => t.id === me.teamId)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()

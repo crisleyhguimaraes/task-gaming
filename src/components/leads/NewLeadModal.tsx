@@ -6,11 +6,12 @@ import { createLead } from '#/server/leads'
 import type { getLeadOptions } from '#/server/leads'
 import type { DuplicateCandidate } from '#/server/leads.core'
 import type { AuthCtx } from '#/server/roles'
+import { canManage } from '#/server/roles'
 import { LeadFields, readLeadFields } from './LeadFields'
 
 type LeadOptions = Awaited<ReturnType<typeof getLeadOptions>>
 
-type Props = { open: boolean; onClose: () => void; options: LeadOptions; me: Pick<AuthCtx, 'userId' | 'teamId' | 'role'> }
+type Props = { open: boolean; onClose: () => void; options: LeadOptions; me: Pick<AuthCtx, 'userId' | 'teamId' | 'role' | 'memberships'> }
 
 export function NewLeadModal({ open, onClose, ...rest }: Props) {
   return (
@@ -27,7 +28,7 @@ function NewLeadForm({ onClose, options, me }: Omit<Props, 'open'>) {
   const [duplicates, setDuplicates] = React.useState<Array<DuplicateCandidate>>([])
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const owners = options.members.filter((m) => m.teamId === teamId && (me.role !== 'MEMBER' || m.id === me.userId))
+  const owners = options.members.filter((m) => m.teamId === teamId && (canManage(me, { teamId }) || m.id === me.userId))
 
   async function submit(force: boolean) {
     const form = new FormData(formRef.current!)
