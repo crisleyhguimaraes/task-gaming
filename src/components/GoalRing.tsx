@@ -17,7 +17,7 @@ export function GoalRing({ goal, points }: { goal: number | null; points: number
   const pct = Math.min(100, Math.round((points / goal) * 100))
   return (
     <div className="flex items-center gap-4 lg:flex-col lg:items-center lg:text-center">
-      <Ring pct={pct} size={120} stroke={10} className="text-cyan-400">
+      <Ring pct={pct} size={120} stroke={10} className="text-brand-ring">
         <span className="text-xl font-bold">{pct}%</span>
         <span className="text-xs text-neutral-400">da meta</span>
       </Ring>

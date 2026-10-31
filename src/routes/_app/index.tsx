@@ -1,13 +1,14 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
-import { CalendarDays, CheckCircle2, ChevronRight, Clock, Flame, Hand, Medal, Play, Plus, Trophy } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Clock, Flame, Hand, Play, Plus, Trophy } from 'lucide-react'
 import * as React from 'react'
 import { Avatar } from '#/components/Avatar'
 import { ChallengeCard } from '#/components/ChallengeCard'
 import { GoalRing } from '#/components/GoalRing'
 import { LevelTrack } from '#/components/LevelTrack'
+import { PageHeader } from '#/components/PageHeader'
 import { PointsChart } from '#/components/PointsChart'
 import { Ring } from '#/components/Ring'
-import { Pill, StatTile } from '#/components/StatTile'
+import { StatTile } from '#/components/StatTile'
 import { appRoute } from '#/lib/app-route'
 import { displayRole, fmtClock, fmtDuration } from '#/lib/format'
 import { useElapsed } from '#/lib/useElapsed'
@@ -16,6 +17,7 @@ import { levelFor } from '#/server/levels'
 import { getToday, startTask } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/')({
+  staticData: { pageWidth: 'wide' },
   loader: () => getToday(),
   component: Today,
 })
@@ -39,38 +41,41 @@ function Today() {
     }
   }
 
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Pill icon={Medal} tone="gold" label="Nível" value={`${level.level} · ${level.name}`} />
-        <Pill icon={CalendarDays} tone="cyan" label="Na empresa" value={`${d.daysInCompany} dia${d.daysInCompany === 1 ? '' : 's'}`} />
-        <Pill icon={Flame} tone="green" label="Sequência" value={d.streak > 0 ? `${d.streak} ${d.streak === 1 ? 'dia seguido' : 'dias seguidos'}` : 'Comece hoje'} />
-      </div>
+  const firstName = me.name.split(' ')[0]
 
-      <section className="card grid items-center gap-6 p-5 lg:grid-cols-[auto_1fr_auto]">
-        <Ring pct={level.pct} size={168} stroke={12}>
-          <span className="text-2xl font-bold">Nível {level.level}</span>
-          <span className="text-sm text-neutral-400">{level.next ? `${d.totalPoints - level.min}/${level.next - level.min} pts` : `${d.totalPoints} pts`}</span>
-        </Ring>
-        <div className="space-y-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{me.name}</h1>
-            <p className="text-sm text-neutral-400">
-              {displayRole(me)}{d.teams.length > 0 ? ` · ${d.teams.map((t) => t.name).join(', ')}` : ''}
-            </p>
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Hoje" subtitle={`Olá, ${firstName}. Aqui está o seu dia.`}>
+        <Link to="/board" className="btn-ghost px-3 py-2 text-xs">Ver board</Link>
+        {manager && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Nova tarefa</Link>}
+      </PageHeader>
+
+      <div className="grid gap-4 lg:grid-cols-12">
+        <section className="card grid items-center gap-6 p-5 sm:grid-cols-[auto_1fr] lg:col-span-8">
+          <Ring pct={level.pct} size={150} stroke={12}>
+            <span className="text-2xl font-bold">Nível {level.level}</span>
+            <span className="text-sm text-neutral-400">{level.next ? `${d.totalPoints - level.min}/${level.next - level.min} pts` : `${d.totalPoints} pts`}</span>
+          </Ring>
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-bold tracking-tight">{me.name}</h2>
+              <p className="text-sm text-neutral-400">
+                {level.name} · {displayRole(me)}{d.teams.length > 0 ? ` · ${d.teams.map((t) => t.name).join(', ')}` : ''}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 xl:grid-cols-5">
+              <Stat label="Ritmo" value={`${d.hero.ritmo}%`} hint="dentro do estimado" />
+              <Stat label="Foco" value={`${d.hero.foco}%`} hint="ativo / decorrido" />
+              <Stat label="Recordes" value={d.hero.recordes} hint="desafios liderando" />
+              <Stat label="Sequência" value={d.streak} hint={d.streak === 1 ? 'dia seguido' : d.streak > 0 ? 'dias seguidos' : 'comece hoje'} />
+              <Stat label="Na empresa" value={d.daysInCompany} hint={d.daysInCompany === 1 ? 'dia' : 'dias'} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-6">
-            <Stat label="Ritmo" value={`${d.hero.ritmo}%`} hint="dentro do estimado" />
-            <Stat label="Foco" value={`${d.hero.foco}%`} hint="ativo / decorrido" />
-            <Stat label="Recordes" value={d.hero.recordes} hint="desafios liderando" />
-          </div>
-          <div className="flex gap-2">
-            <Link to="/board" className="btn-ghost px-3 py-2 text-xs">Ver board</Link>
-            {manager && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Nova tarefa</Link>}
-          </div>
-        </div>
-        <GoalRing goal={d.goal} points={d.progress.points} />
-      </section>
+        </section>
+        <section className="card flex items-center justify-center p-5 lg:col-span-4">
+          <GoalRing goal={d.goal} points={d.progress.points} />
+        </section>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile icon={CheckCircle2} tone="green" value={d.progress.finished} label="Concluídas hoje" />
@@ -79,8 +84,8 @@ function Today() {
         <StatTile icon={Hand} tone="pink" value={d.pool.length} label="No pool da equipe" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-12">
+        <div className="space-y-4 lg:col-span-7">
           {d.active && <ActiveCard task={d.active} />}
 
           <section className="card space-y-3">
@@ -129,13 +134,14 @@ function Today() {
             </section>
           )}
 
+        </div>
+
+        <div className="space-y-4 lg:col-span-5">
           <section className="card">
             <h2 className="mb-2 font-semibold">Desempenho</h2>
             <PointsChart data={d.pointsByDay} />
           </section>
-        </div>
 
-        <div className="space-y-4">
           <section className="card space-y-3">
             <h2 className="font-semibold">Equipe agora</h2>
             {d.teamNow.length === 0 && <p className="text-sm text-neutral-400">Ninguém com tarefa rodando.</p>}
@@ -196,7 +202,7 @@ function ActiveCard({ task }: { task: NonNullable<ReturnType<typeof Route.useLoa
   const running = task.status === 'in_progress'
   const pct = Math.min(100, Math.round((seconds / task.estimatedSeconds) * 100))
   return (
-    <Link to="/tasks/$taskId" params={{ taskId: task.id }} className="card flex items-center gap-4 border border-xp-500/30 bg-gradient-to-r from-xp-950/40 to-neutral-900 hover:from-xp-950/60">
+    <Link to="/tasks/$taskId" params={{ taskId: task.id }} className="card flex items-center gap-4 border-xp-500/30 bg-xp-950/40 hover:bg-xp-950/60">
       <Ring pct={pct} size={64} stroke={6} className={seconds > task.estimatedSeconds ? 'text-rose-400' : 'text-xp-400'}>
         {running ? <span className="h-2 w-2 animate-pulse rounded-full bg-xp-400" /> : <span className="text-xs text-neutral-400">II</span>}
       </Ring>
