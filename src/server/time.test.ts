@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FACTORY_RULES } from './scoring'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
 
 const t = (min: number) => new Date(Date.UTC(2026, 0, 1, 0, min))
@@ -28,5 +29,28 @@ describe('time', () => {
 
   it('sem logs → elapsed mínimo 1', () => {
     expect(summarizeLogs([], 600, t(0))).toEqual({ movingSeconds: 0, elapsedSeconds: 1 })
+  })
+
+  describe('com regras customizadas', () => {
+    const rules = { ...FACTORY_RULES, capMultiplier: 1, capMinMinutes: 5 }
+
+    it('cap = max(multiplicador × est, mínimo em minutos)', () => {
+      expect(capFor(600, rules)).toBe(600)
+      expect(capFor(100, rules)).toBe(300)
+    })
+
+    it('closeLogDuration trava no teto da regra', () => {
+      expect(closeLogDuration(t(0), t(60), 600, rules)).toBe(600)
+      expect(closeLogDuration(t(0), t(60), 600)).toBe(1800)
+    })
+
+    it('summarizeLogs limita blocos e gaps pelo teto da regra', () => {
+      const logs = [
+        { startedAt: t(0), stoppedAt: t(20), durationSeconds: 1200 },
+        { startedAt: t(40), stoppedAt: t(41), durationSeconds: 60 }, // gap 20min
+      ]
+      expect(summarizeLogs(logs, 600, t(41))).toEqual({ movingSeconds: 1260, elapsedSeconds: 2460 })
+      expect(summarizeLogs(logs, 600, t(41), rules)).toEqual({ movingSeconds: 660, elapsedSeconds: 1260 })
+    })
   })
 })

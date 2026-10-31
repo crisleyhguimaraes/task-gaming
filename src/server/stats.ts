@@ -1,6 +1,7 @@
 import { and, asc, eq, getTableColumns, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { taskTimeLogs, tasks, teamMembers, teams, tenants, users } from '#/db/schema'
+import { MS_PER_DAY, computeStreak, dayKey } from '#/lib/goals'
 import type { AuthCtx } from './roles'
 import { canManage, isAdmin, isManager } from './roles'
 import { inManagedTeams, inMemberTeams, inTenantTeams } from './scope'
@@ -70,35 +71,15 @@ export async function pointsByDay(userId: string, tz: string, days = 14) {
   const byDay = new Map(rows.map((r) => [r.day, r.points]))
   const today = new Date(`${todayKey(tz)}T00:00:00Z`)
   return Array.from({ length: days }, (_, i) => {
-    const d = toKey(new Date(today.getTime() - (days - 1 - i) * DAY))
+    const d = dayKey(new Date(today.getTime() - (days - 1 - i) * MS_PER_DAY))
     return { day: d, points: byDay.get(d) ?? 0 }
   })
 }
 
 // --- Streak -----------------------------------------------------------------
 
-const DAY = 86_400_000
 /** 'YYYY-MM-DD' de agora no fuso do tenant. */
 export const todayKey = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
-const toKey = (d: Date) => d.toISOString().slice(0, 10)
-const isWeekend = (d: Date) => d.getUTCDay() === 0 || d.getUTCDay() === 6
-
-/** Dias consecutivos com conclusão válida, terminando hoje ou no último dia útil. Fim de semana sem tarefa não quebra. */
-export function computeStreak(daysWithTasks: Iterable<string>, today: string) {
-  const set = new Set(daysWithTasks)
-  let cursor = new Date(`${today}T00:00:00Z`)
-  const back = () => {
-    cursor = new Date(cursor.getTime() - DAY)
-    while (isWeekend(cursor) && !set.has(toKey(cursor))) cursor = new Date(cursor.getTime() - DAY)
-  }
-  if (!set.has(toKey(cursor))) back() // hoje ainda não pontuou: streak continua vivo até o fim do dia
-  let n = 0
-  while (set.has(toKey(cursor))) {
-    n++
-    back()
-  }
-  return n
-}
 
 export async function streak(userId: string, tz: string) {
   const rows = await db
