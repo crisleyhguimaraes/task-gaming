@@ -3,7 +3,7 @@ import { db } from '#/db'
 import { eq } from 'drizzle-orm'
 import { challenges, taskTimeLogs, tasks } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { attentionCount, heroStats, poolOf, ranking, streak, teamFeed, teamPageFor } from './stats'
+import { attentionCount, finishedCount, heroStats, poolOf, ranking, streak, teamFeed, teamPageFor } from './stats'
 import { startTaskFor, finishTaskFor, validatePointsFor } from './tasks.core'
 import { addMember, removeMember } from './team-members.core'
 import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
@@ -94,6 +94,15 @@ describe('tarefa com pontos rejeitados', () => {
     await rejectedBy(owner)
 
     expect((await heroStats(owner.userId)).total).toBe(0)
+  })
+
+  it('não conta como concluída no perfil, e a que ainda aguarda validação também não', async () => {
+    const owner = await addUser(f, { role: 'MEMBER', team: f.team })
+    await rejectedBy(owner)
+    await seed(f.team.id, { assignedToId: owner.userId, status: 'finished', needsValidation: true })
+    await seed(f.team.id, { assignedToId: owner.userId, status: 'finished', awardedPoints: 10 })
+
+    expect(await finishedCount(owner.userId)).toBe(1)
   })
 
   it('não conta como concluída no ranking', async () => {

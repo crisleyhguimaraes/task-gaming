@@ -75,8 +75,11 @@ describe('editar × iniciar a tarefa', () => {
 
       await Promise.allSettled([startTaskFor(runner, task.id), updateTaskFor(f.leader, editTo(task, other.userId))])
 
-      const row = await taskRow(task.id)
-      if (row.status === 'in_progress') expect(row.assignedToId).toBe(runner.userId)
+      const { status, assignedToId } = await taskRow(task.id)
+      expect({ status, assignedToId }).toBeOneOf([
+        { status: 'in_progress', assignedToId: runner.userId },
+        { status: 'pending', assignedToId: other.userId },
+      ])
     }
   })
 

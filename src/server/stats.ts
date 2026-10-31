@@ -1,5 +1,5 @@
 import type { SQL } from 'drizzle-orm'
-import { and, asc, eq, getTableColumns, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, asc, count, eq, getTableColumns, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { challenges, taskTimeLogs, tasks, teamMembers, teams, tenants, users } from '#/db/schema'
 import { MS_PER_DAY, activeDaysOf, computeStreak, dayKey, goalForWeekday, weekdayOf } from '#/lib/goals'
@@ -47,6 +47,11 @@ export async function totalPoints(userId: string) {
     .from(tasks)
     .where(and(eq(tasks.assignedToId, userId), validPoints))
   return r!.points
+}
+
+export async function finishedCount(userId: string) {
+  const [r] = await db.select({ n: count() }).from(tasks).where(and(eq(tasks.assignedToId, userId), validPoints))
+  return r!.n
 }
 
 /** Ritmo = % de tarefas concluídas dentro do estimado; Foco = média ativo/decorrido. Só tarefas cronometradas. */

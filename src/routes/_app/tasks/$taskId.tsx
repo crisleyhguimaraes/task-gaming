@@ -79,7 +79,7 @@ function Player({ task }: { task: Awaited<ReturnType<typeof getTask>> }) {
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <div className="flex justify-center gap-2">
           <Link to="/" className="btn-ghost">Voltar para Hoje</Link>
-          {task.status === 'cancelled' && task.canManage && can(me, 'task.restore') && (
+          {task.status === 'cancelled' && !task.challengeId && task.canManage && can(me, 'task.restore', task.teamId) && (
             <button onClick={() => run(() => restoreTask({ data }))} disabled={busy} className="btn-primary">
               <RotateCcw className="h-4 w-4" /> Restaurar
             </button>

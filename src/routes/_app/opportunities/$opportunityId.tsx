@@ -4,6 +4,7 @@ import * as React from 'react'
 import { LostReasonModal } from '#/components/pipeline/LostReasonModal'
 import { Notes } from '#/components/Notes'
 import { appRoute } from '#/lib/app-route'
+import { ownerOptions } from '#/lib/opportunity'
 import { formatCents, toCents } from '#/lib/pipeline'
 import { getOpportunity, moveOpportunity, updateOpportunity } from '#/server/pipeline'
 import { listNotes } from '#/server/notes'
@@ -17,7 +18,9 @@ export const Route = createFileRoute('/_app/opportunities/$opportunityId')({
       listNotes({ data: { type: 'opportunity', id: params.opportunityId } }),
       getTaskFormOptions(),
     ])
-    return { detail, notes, members: options.members.filter((m) => m.teamId === detail.opportunity.teamId) }
+    const { opportunity } = detail
+    const teamMembers = options.members.filter((m) => m.teamId === opportunity.teamId)
+    return { detail, notes, members: ownerOptions(teamMembers, { id: opportunity.ownerId, name: opportunity.ownerName }) }
   },
   component: OpportunityPage,
 })

@@ -39,3 +39,9 @@ export const canSeeRecord = (me: AuthCtx, { teamId }: Owned) => canAccessTeam(me
 
 /** Quem tem dono só deixa o dono ou um gestor mexer; sem dono, qualquer um que enxergue. */
 export const canEditRecord = (me: AuthCtx, record: Owned) => canSeeRecord(me, record) && (record.ownerId === null || record.ownerId === me.userId || canManage(me, record))
+
+/** O dono atual sempre consta nas opções: sem ele, salvar o formulário trocaria o dono por "Sem dono" sem ninguém notar. */
+export function ownerOptions<T extends { id: string; name: string }>(members: ReadonlyArray<T>, owner: { id: string | null; name: string | null }) {
+  const current = owner.id !== null && owner.name !== null && !members.some((m) => m.id === owner.id)
+  return current ? [...members, { id: owner.id!, name: owner.name! }] : members
+}

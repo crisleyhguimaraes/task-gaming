@@ -1,10 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, count, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
-import { tasks, users } from '#/db/schema'
+import { users } from '#/db/schema'
 import { authMiddleware } from './auth-context'
-import { streak, tenantSettings, totalPoints } from './stats'
+import { finishedCount, streak, tenantSettings, totalPoints } from './stats'
 import { teamsOfUser } from './team-members.core'
 
 export const getProfile = createServerFn()
@@ -15,10 +15,6 @@ export const getProfile = createServerFn()
       .from(users)
       .where(eq(users.id, me.userId))
     const { timezone } = await tenantSettings(me.tenantId)
-    const [done] = await db
-      .select({ n: count() })
-      .from(tasks)
-      .where(and(eq(tasks.assignedToId, me.userId), eq(tasks.status, 'finished')))
     return {
       name: u?.name ?? me.name,
       email: u?.email ?? '',
@@ -26,7 +22,7 @@ export const getProfile = createServerFn()
       memberSince: u?.createdAt ?? new Date(),
       totalPoints: await totalPoints(me.userId),
       streak: await streak(me.userId, timezone),
-      finished: done?.n ?? 0,
+      finished: await finishedCount(me.userId),
     }
   })
 

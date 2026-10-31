@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { StageKind } from '#/db/schema'
 import type { TeamRole } from '#/lib/access'
 import type { AuthCtx } from '#/server/roles'
-import { canEditRecord, lostReasonFor, planMove } from './opportunity'
+import { canEditRecord, lostReasonFor, ownerOptions, planMove } from './opportunity'
 
 const stage = (id: string, kind: StageKind) => ({ id, kind })
 const open = stage('open', 'open')
@@ -87,5 +87,21 @@ describe('canEditRecord', () => {
   it('quem não enxerga a equipe não edita nem sem dono', () => {
     expect(canEditRecord(stranger, unowned)).toBe(false)
     expect(canEditRecord(stranger, ownedByMember)).toBe(false)
+  })
+})
+
+describe('ownerOptions', () => {
+  const members = [{ id: 'u1', name: 'Ana' }]
+
+  it('mantém a lista quando o dono atual já está nela', () => {
+    expect(ownerOptions(members, { id: 'u1', name: 'Ana' })).toEqual(members)
+  })
+
+  it('acrescenta o dono atual que não está na lista, para salvar sem trocá-lo por "sem dono"', () => {
+    expect(ownerOptions(members, { id: 'u9', name: 'Bia' })).toEqual([...members, { id: 'u9', name: 'Bia' }])
+  })
+
+  it('não acrescenta nada quando não há dono', () => {
+    expect(ownerOptions(members, { id: null, name: null })).toEqual(members)
   })
 })
