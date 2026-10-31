@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from './index'
 import { tasks, teams, tenants, users } from './schema'
 import { auth } from '#/lib/auth'
-import { addMember, teamRoleOf } from '#/server/team-members.core'
+import { addMember } from '#/server/team-members.core'
 
 const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'acme'))
 if (!tenant) throw new Error('Crie o tenant "acme" primeiro (/admin/tenants)')
@@ -12,9 +12,9 @@ let [team] = await db.select().from(teams).where(and(eq(teams.tenantId, tenant.i
 if (!team) [team] = await db.insert(teams).values({ tenantId: tenant.id, name: 'Vendas' }).returning()
 
 const people = [
-  { email: 'leo@acme.com', name: 'Léo Líder', role: 'TEAM_LEADER' },
-  { email: 'bruno@acme.com', name: 'Bruno Silva', role: 'MEMBER' },
-  { email: 'carla@acme.com', name: 'Carla Souza', role: 'MEMBER' },
+  { email: 'leo@acme.com', name: 'Léo Líder', teamRole: 'LEADER' },
+  { email: 'bruno@acme.com', name: 'Bruno Silva', teamRole: 'MEMBER' },
+  { email: 'carla@acme.com', name: 'Carla Souza', teamRole: 'MEMBER' },
 ] as const
 const seeder = { userId: 'seed-demo', tenantId: tenant.id, name: 'seed-demo', impersonatedBy: null }
 const ids: Record<string, string> = {}
@@ -25,10 +25,10 @@ for (const p of people) {
     continue
   }
   const created = await auth.api.createUser({
-    body: { ...p, password: 'demo-1234', data: { tenantId: tenant.id, teamId: team!.id } },
+    body: { email: p.email, name: p.name, role: 'MEMBER', password: 'demo-1234', data: { tenantId: tenant.id } },
   })
   ids[p.email] = created.user.id
-  await db.transaction((tx) => addMember(tx, seeder, { teamId: team!.id, userId: created.user.id, role: teamRoleOf(p.role) }))
+  await db.transaction((tx) => addMember(tx, seeder, { teamId: team!.id, userId: created.user.id, role: p.teamRole }))
   console.log('usuário:', p.email, '/ demo-1234')
 }
 

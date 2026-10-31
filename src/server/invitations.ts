@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
+import { assignableRoles, teamRoles } from '#/lib/access'
 import { authMiddleware, requireCan } from './auth-context'
 import { acceptInvitationCore, cancelInvitationFor, createInvitationCore, listInvitationsFor, resendInvitationFor, validInvitation } from './invitations.core'
 
@@ -9,7 +10,7 @@ export const listInvitations = createServerFn()
 
 export const createInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(z.object({ email: z.email(), teamId: z.uuid().nullable(), role: z.enum(['TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER']) }))
+  .validator(z.object({ email: z.email(), teamId: z.uuid().nullable(), role: z.enum(assignableRoles), teamRole: z.enum(teamRoles).default('MEMBER') }))
   .handler(async ({ data, context: { auth: me } }) => {
     requireCan(me, 'invitation.manage')
     await createInvitationCore(me, data)

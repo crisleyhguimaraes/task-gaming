@@ -1,24 +1,28 @@
 import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '#/db'
-import type { Role } from '#/db/schema'
 import { sessions, teamMembers, teams, users } from '#/db/schema'
+import type { AssignableRole, TeamRole } from '#/lib/access'
 import { auth } from '#/lib/auth'
-import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import type { AuthCtx, Capability } from './roles'
 import { fail, requireCan } from './roles'
 import { assertWithinScope, teamIdsFrom, usersInScope } from './scope'
 import { assertTeamInTenant } from './teams.core'
-import { addMember, removeMember, teamIdsOfUser, teamRoleOf } from './team-members.core'
+import { addMember, teamsOfUser } from './team-members.core'
 import { releaseOpenWork } from './tasks.core'
 import type { Reader } from './tx'
 
-export type AssignableRole = Exclude<Role, 'SUPER_ADMIN'>
-
-async function findUserInScope(tx: Reader, me: AuthCtx, userId: string, capability: Capability) {
+async function findUser(tx: Reader, me: AuthCtx, userId: string) {
   const [u] = await tx.select().from(users).where(and(eq(users.id, userId), eq(users.tenantId, me.tenantId), ne(users.role, 'SUPER_ADMIN')))
   if (!u) fail('Usuário não encontrado')
-  assertWithinScope(me, { role: u.role, teamIds: await teamIdsOfUser(tx, u.id) }, capability)
+  return u
+}
+
+async function findUserInScope(tx: Reader, me: AuthCtx, userId: string, capability: Capability) {
+  const u = await findUser(tx, me, userId)
+  const links = await teamsOfUser(tx, u.id)
+  const teamRole = links.some((l) => l.role === 'LEADER') ? 'LEADER' : 'MEMBER'
+  assertWithinScope(me, { role: u.role, teamRole, teamIds: links.map((l) => l.id) }, capability)
   return u
 }
 
@@ -42,19 +46,14 @@ export async function listUsersFor(me: AuthCtx) {
   }
 }
 
-/** Muda equipe/papel. Tarefas abertas na equipe antiga voltam pro pool (regra de órfãs). */
-export async function updateUserCore(me: AuthCtx, data: { userId: string; teamId: string | null; role: AssignableRole }) {
+export async function updateUserCore(me: AuthCtx, data: { userId: string; role: AssignableRole }) {
+  requireCan(me, 'user.update')
   await db.transaction(async (tx) => {
-    await assertTeamInTenant(tx, me.tenantId, data.teamId)
-    const u = await findUserInScope(tx, me, data.userId, 'user.update')
-    if (u.id === me.userId && u.role !== data.role) fail('Você não pode alterar o próprio papel')
-    assertWithinScope(me, { role: data.role, teamIds: teamIdsFrom(data.teamId) }, 'user.update')
-    // NOTE: a tela edita uma equipe só, a de users.team_id; a 1b-iii a troca por vínculos e a 1c remove a coluna.
-    if (u.teamId && u.teamId !== data.teamId) await removeMember(tx, me, { teamId: u.teamId, userId: u.id })
-    const [updated] = await tx.update(users).set({ teamId: data.teamId, role: data.role }).where(eq(users.id, u.id)).returning()
-    if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: u.id, role: teamRoleOf(data.role) })
-    const changes = diffFields(u, updated!, ['role', 'teamId'])
-    if (Object.keys(changes).length) await recordAudit(tx, me, { action: 'user.updated', entityType: 'user', entityId: u.id, changes })
+    const u = await findUser(tx, me, data.userId)
+    if (u.role === data.role) return
+    if (u.id === me.userId) fail('Você não pode alterar o próprio papel')
+    await tx.update(users).set({ role: data.role }).where(eq(users.id, u.id))
+    await recordAudit(tx, me, { action: 'user.updated', entityType: 'user', entityId: u.id, changes: { role: { from: u.role, to: data.role } } })
   })
 }
 
@@ -81,22 +80,20 @@ export async function reactivateUserCore(me: AuthCtx, userId: string) {
   })
 }
 
-export async function createUserFor(me: AuthCtx, data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole }) {
-  assertWithinScope(me, { role: data.role, teamIds: teamIdsFrom(data.teamId) }, 'user.create')
+export async function createUserFor(
+  me: AuthCtx,
+  data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole; teamRole?: TeamRole },
+) {
+  const { teamRole = 'MEMBER' } = data
+  assertWithinScope(me, { role: data.role, teamRole, teamIds: teamIdsFrom(data.teamId) }, 'user.create')
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const { user } = await auth.api.createUser({
-    body: {
-      name: data.name,
-      email: data.email,
-      password: data.password,
-      role: data.role,
-      data: { tenantId: me.tenantId, teamId: data.teamId ?? undefined, mustChangePassword: true },
-    },
+    body: { name: data.name, email: data.email, password: data.password, role: data.role, data: { tenantId: me.tenantId, mustChangePassword: true } },
   })
-  // NOTE: o Better Auth cria o usuário fora da transação; se ela falhar sobra users.team_id sem vínculo, e addMember refaz o vínculo na próxima edição.
+  // NOTE: o Better Auth cria o usuário fora da transação; se ela falhar sobra uma pessoa sem vínculo, que o admin coloca na equipe por addTeamMember.
   await db.transaction(async (tx) => {
-    if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: user.id, role: teamRoleOf(data.role) })
-    await recordAudit(tx, me, { action: 'user.created', entityType: 'user', entityId: user.id, meta: { email: data.email, role: data.role, teamId: data.teamId } })
+    if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: user.id, role: teamRole })
+    await recordAudit(tx, me, { action: 'user.created', entityType: 'user', entityId: user.id, meta: { email: data.email, role: data.role, teamId: data.teamId, teamRole } })
   })
   return user
 }

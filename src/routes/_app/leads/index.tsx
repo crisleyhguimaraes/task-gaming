@@ -5,14 +5,14 @@ import { NewLeadModal } from '#/components/leads/NewLeadModal'
 import { StatusBadge } from '#/components/leads/StatusBadge'
 import { appRoute } from '#/lib/app-route'
 import { leadSourceLabels, leadSources, leadStatusLabels, leadStatuses, leadsPageSize, parseSource, poolOwnerFilter } from '#/lib/leads'
-import { claimLead, getLeadOptions, leadSearchSchema, listLeads } from '#/server/leads'
-import { can } from '#/server/roles'
+import { claimLead, getMyTeamOptions, leadSearchSchema, listLeads } from '#/server/leads'
+import { can, isMemberOf } from '#/server/roles'
 
 export const Route = createFileRoute('/_app/leads/')({
   validateSearch: leadSearchSchema,
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
-    const [list, options] = await Promise.all([listLeads({ data: deps }), getLeadOptions()])
+    const [list, options] = await Promise.all([listLeads({ data: deps }), getMyTeamOptions()])
     return { ...list, options }
   },
   component: Leads,
@@ -100,7 +100,7 @@ function Leads() {
               ) : (
                 <>
                   <span className="text-neutral-500">Pool · {l.teamName}</span>
-                  {l.teamId === me.teamId && can(me, 'lead.write') && <button onClick={() => claim(l.id)} className="btn-ghost px-2.5 py-1 text-xs">Assumir</button>}
+                  {isMemberOf(me, l.teamId) && can(me, 'lead.write') && <button onClick={() => claim(l.id)} className="btn-ghost px-2.5 py-1 text-xs">Assumir</button>}
                 </>
               )}
             </div>

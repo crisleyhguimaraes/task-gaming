@@ -21,7 +21,6 @@ export async function loadAuthCtx(user: SessionUser, session: Session): Promise<
   return {
     userId: user.id,
     tenantId: user.tenantId,
-    teamId: memberships[0]?.teamId ?? null,
     role: user.role,
     memberships,
     name: user.name,

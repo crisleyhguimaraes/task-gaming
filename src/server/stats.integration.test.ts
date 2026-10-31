@@ -41,7 +41,7 @@ describe('attentionCount', () => {
   })
 
   it('líder sem equipe não conta nada, sem erro', async () => {
-    const teamlessLeader = await addUser(f, { role: 'TEAM_LEADER', team: null })
+    const teamlessLeader = await addUser(f, { role: 'MEMBER', team: null, teamRole: 'LEADER' })
 
     expect(await attentionCount(teamlessLeader)).toEqual({ pool: 0, validation: 0 })
   })
@@ -94,7 +94,7 @@ describe('várias equipes: pool, sino, ranking e feed', () => {
     teamX = g.team
     teamY = await addTeam(g, 'Y')
     teamZ = await addTeam(g, 'Z')
-    leaderOfXMemberOfY = await joinTeam(g, (await addUser(g, { role: 'TEAM_LEADER', team: teamX })).userId, teamY, 'MEMBER')
+    leaderOfXMemberOfY = await joinTeam(g, (await addUser(g, { role: 'MEMBER', team: teamX, teamRole: 'LEADER' })).userId, teamY, 'MEMBER')
     await put(teamX.id, { title: 'pool X' })
     await put(teamY.id, { title: 'pool Y' })
     await put(teamZ.id, { title: 'pool Z' })

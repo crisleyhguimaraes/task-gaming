@@ -8,12 +8,12 @@ import type { ImportChoices } from '#/components/leads/ImportPreview'
 import { appRoute } from '#/lib/app-route'
 import { applyColumnMapping, guessColumnMapping, maxImportRows } from '#/lib/leads'
 import type { ColumnMapping } from '#/lib/leads'
-import { getLeadOptions, importLeads, previewLeadImport } from '#/server/leads'
+import { getMyTeamOptions, importLeads, previewLeadImport } from '#/server/leads'
 import type { ImportResult, RowPreview } from '#/server/leads-import.core'
-import { can } from '#/server/roles'
+import { can, defaultTeamId } from '#/server/roles'
 
 export const Route = createFileRoute('/_app/leads/import')({
-  loader: () => getLeadOptions(),
+  loader: () => getMyTeamOptions(),
   component: ImportLeads,
 })
 
@@ -34,7 +34,7 @@ function ImportLeads() {
   const { teams } = Route.useLoaderData()
   const [table, setTable] = React.useState<Table | null>(null)
   const [mapping, setMapping] = React.useState<ColumnMapping>({})
-  const [teamId, setTeamId] = React.useState(teams.find((t) => t.id === me.teamId)?.id ?? teams[0]?.id ?? '')
+  const [teamId, setTeamId] = React.useState(defaultTeamId(me, teams))
   const [preview, setPreview] = React.useState<Array<RowPreview> | null>(null)
   const [choices, setChoices] = React.useState<ImportChoices>({ onDuplicate: 'skip', distribute: 'none' })
   const [result, setResult] = React.useState<ImportResult | null>(null)

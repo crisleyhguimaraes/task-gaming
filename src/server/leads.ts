@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { leadSources, leadsPageSize, maxImportRows } from '#/lib/leads'
 import { authMiddleware, requireCan } from './auth-context'
 import { importLeadsFor, previewLeadImportFor } from './leads-import.core'
-import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, leadOptionsFor, listLeadsFor, updateLeadFor } from './leads.core'
+import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, myTeamOptionsFor, listLeadsFor, updateLeadFor } from './leads.core'
 
 const leadStatus = z.enum(['new', 'contacted', 'qualified', 'disqualified'])
 const leadSource = z.enum(leadSources)
@@ -33,9 +33,9 @@ export const listLeads = createServerFn()
     page,
   }))
 
-export const getLeadOptions = createServerFn()
+export const getMyTeamOptions = createServerFn()
   .middleware([authMiddleware])
-  .handler(({ context: { auth: me } }) => leadOptionsFor(me))
+  .handler(({ context: { auth: me } }) => myTeamOptionsFor(me))
 
 export const getLead = createServerFn()
   .middleware([authMiddleware])

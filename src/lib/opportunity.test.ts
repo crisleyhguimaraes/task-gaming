@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StageKind } from '#/db/schema'
+import type { TeamRole } from '#/lib/access'
 import type { AuthCtx } from '#/server/roles'
 import { canEditRecord, lostReasonFor, planMove } from './opportunity'
 
@@ -54,19 +55,18 @@ describe('lostReasonFor', () => {
 })
 
 describe('canEditRecord', () => {
-  const ctx = (userId: string, role: AuthCtx['role'], teamId: string | null): AuthCtx => ({
+  const ctx = (userId: string, role: AuthCtx['role'], teamId: string | null, teamRole: TeamRole = 'MEMBER'): AuthCtx => ({
     userId,
     tenantId: 't',
-    teamId,
     role,
-    memberships: teamId ? [{ teamId, role: role === 'TEAM_LEADER' ? 'LEADER' : 'MEMBER' }] : [],
+    memberships: teamId ? [{ teamId, role: teamRole }] : [],
     name: userId,
     impersonatedBy: null,
     mustChangePassword: false,
     capabilityOverrides: {},
   })
   const admin = ctx('admin', 'TENANT_ADMIN', null)
-  const leader = ctx('leader', 'TEAM_LEADER', 'a')
+  const leader = ctx('leader', 'MEMBER', 'a', 'LEADER')
   const member = ctx('member', 'MEMBER', 'a')
   const colleague = ctx('colleague', 'MEMBER', 'a')
   const stranger = ctx('stranger', 'MEMBER', 'b')

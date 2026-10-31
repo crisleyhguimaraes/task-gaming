@@ -3,8 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, challenges, taskTimeLogs, tasks, teamMembers } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { addMember, removeMember, setRole, teamsOfUser } from './team-members.core'
-import { updateUserCore } from './users.core'
+import { addMember, removeMember, removeTeamMemberFor, setRole, teamsOfUser } from './team-members.core'
 import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
@@ -32,7 +31,7 @@ const linksOf = (teamId: string, userId: string) =>
 const eventsOf = (teamId: string) =>
   db.select().from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.entityType, 'team'), eq(auditEvents.entityId, teamId))).orderBy(asc(auditEvents.createdAt), asc(auditEvents.id))
 
-const freshTeamAndUser = async (role: AuthCtx['role'] = 'MEMBER') => ({ team: await addTeam(f, 'Nova'), user: await addUser(f, { role, team: null }) })
+const freshTeamAndUser = async () => ({ team: await addTeam(f, 'Nova'), user: await addUser(f, { role: 'MEMBER', team: null }) })
 
 describe('addMember', () => {
   it('cria o vínculo com o papel pedido (MEMBER por padrão) e audita na equipe', async () => {
@@ -60,14 +59,14 @@ describe('addMember', () => {
     expect(await eventsOf(team.id)).toHaveLength(1)
   })
 
-  it('quem já é membro com outro papel só muda de papel, e isso é auditado como troca', async () => {
+  it('quem já é membro com outro papel não muda de papel por aqui: a troca é de setRole', async () => {
     const { team, user } = await freshTeamAndUser()
     await add(team.id, user.userId, 'MEMBER')
 
-    await add(team.id, user.userId, 'LEADER')
+    await expect(add(team.id, user.userId, 'LEADER')).rejects.toThrow('outro papel')
 
-    expect(await linksOf(team.id, user.userId)).toMatchObject([{ role: 'LEADER' }])
-    expect((await eventsOf(team.id)).map((e) => e.action)).toEqual(['team.member_added', 'team.member_role_changed'])
+    expect(await linksOf(team.id, user.userId)).toMatchObject([{ role: 'MEMBER' }])
+    expect((await eventsOf(team.id)).map((e) => e.action)).toEqual(['team.member_added'])
   })
 
   it('dois cadastros simultâneos do mesmo par resultam em um vínculo e uma auditoria', async () => {
@@ -228,7 +227,7 @@ describe('removeMember e o trabalho aberto da equipe', () => {
     expect(await taskNow(done.id)).toMatchObject({ status: 'finished', assignedToId: user.userId, awardedPoints: 10 })
   })
 
-  it('updateUserCore ao mudar de equipe devolve só o trabalho da equipe antiga', async () => {
+  it('removeTeamMemberFor devolve só o trabalho da equipe de que a pessoa saiu', async () => {
     const teamA = await addTeam(f, 'A')
     const teamB = await addTeam(f, 'B')
     const user = await addUser(f, { role: 'MEMBER', team: teamA })
@@ -236,7 +235,7 @@ describe('removeMember e o trabalho aberto da equipe', () => {
     const inA = await openTask(teamA.id, user.userId)
     const inB = await openTask(teamB.id, user.userId, { status: 'paused' })
 
-    await updateUserCore(admin, { userId: user.userId, teamId: null, role: 'MEMBER' })
+    await removeTeamMemberFor(admin, { teamId: teamA.id, userId: user.userId })
 
     expect(await taskNow(inA.id)).toMatchObject({ status: 'pending', assignedToId: null })
     expect(await taskNow(inB.id)).toMatchObject({ status: 'paused', assignedToId: user.userId })

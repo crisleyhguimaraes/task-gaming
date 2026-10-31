@@ -6,8 +6,6 @@ export type Membership = { teamId: string; role: TeamRole }
 export type AuthCtx = {
   userId: string
   tenantId: string
-  // NOTE: alias transitório (equipe do primeiro vínculo); a 1b-ii o remove quando os últimos usos passarem a ler `memberships`.
-  teamId: string | null
   role: Role
   memberships: ReadonlyArray<Membership>
   name: string
@@ -42,6 +40,7 @@ export const defaultGrants = {
   'tenant.manage': ['SUPER_ADMIN'],
   'tenant.configure': ADMINS,
   'team.manage': ADMINS,
+  'team.member.manage': ADMINS,
   'user.read': MANAGERS,
   'user.create': MANAGERS,
   'user.update': ADMINS,
@@ -73,9 +72,10 @@ export const capabilityScope: Record<Capability, CapabilityScope> = {
   'tenant.manage': 'tenant',
   'tenant.configure': 'tenant',
   'team.manage': 'tenant',
+  'team.member.manage': 'team',
   'user.read': 'team',
   'user.create': 'team',
-  'user.update': 'team',
+  'user.update': 'tenant',
   'user.deactivate': 'team',
   'invitation.manage': 'team',
   'permissions.manage': 'tenant',
@@ -122,11 +122,17 @@ export const isAdmin = (me: Pick<AuthCtx, 'role'>) => me.role === 'SUPER_ADMIN' 
 
 export const roleIn = (me: Pick<AuthCtx, 'memberships'>, teamId: string): TeamRole | null => me.memberships.find((m) => m.teamId === teamId)?.role ?? null
 
+export const isMemberOf = (me: Pick<AuthCtx, 'memberships'>, teamId: string) => roleIn(me, teamId) !== null
+
+/** A equipe que uma tela seleciona de início: a primeira dos meus vínculos que a lista oferece; sem nenhuma, a primeira da lista. */
+export const defaultTeamId = (me: Pick<AuthCtx, 'memberships'>, teams: ReadonlyArray<{ id: string }>) =>
+  me.memberships.find((m) => teams.some((t) => t.id === m.teamId))?.teamId ?? teams[0]?.id ?? ''
+
 /** Admin gerencia tudo do tenant; líder gerencia as equipes que lidera. */
 export const canManage = (me: Pick<AuthCtx, 'role' | 'memberships'>, record: { teamId: string }) => isAdmin(me) || roleIn(me, record.teamId) === 'LEADER'
 
 /** Admin entra em qualquer equipe do tenant; os demais, nas que integram. */
-export const canAccessTeam = (me: Pick<AuthCtx, 'role' | 'memberships'>, teamId: string) => isAdmin(me) || roleIn(me, teamId) !== null
+export const canAccessTeam = (me: Pick<AuthCtx, 'role' | 'memberships'>, teamId: string) => isAdmin(me) || isMemberOf(me, teamId)
 
 export const canSee = (me: Pick<AuthCtx, 'userId' | 'role' | 'memberships'>, record: { teamId: string; assignedToId: string | null }) =>
   canManage(me, record) || record.assignedToId === me.userId || roleIn(me, record.teamId) !== null

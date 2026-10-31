@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { invitations, users } from '#/db/schema'
+import { invitations, teamMembers, users } from '#/db/schema'
 import { acceptInvitationCore, listInvitationsFor, validInvitation } from './invitations.core'
 import { ForbiddenError } from './roles'
 import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
@@ -16,7 +16,7 @@ afterAll(async () => {
 })
 
 describe('convites', () => {
-  it('aceitar cria usuário no tenant/equipe/papel do convite e invalida o token', async () => {
+  it('aceitar cria usuário no tenant, o vínculo com a equipe do convite e invalida o token', async () => {
     const email = `nova-${f.tenant.slug}@test.local`
     const [inv] = await db
       .insert(invitations)
@@ -25,7 +25,8 @@ describe('convites', () => {
     expect((await validInvitation(inv!.token)).status).toBe('valid')
     await acceptInvitationCore(inv!.token, 'Nova Pessoa', 'senha-forte-123')
     const [u] = await db.select().from(users).where(eq(users.email, email))
-    expect(u).toMatchObject({ tenantId: f.tenant.id, teamId: f.team.id, role: 'MEMBER', mustChangePassword: false })
+    expect(u).toMatchObject({ tenantId: f.tenant.id, teamId: null, role: 'MEMBER', mustChangePassword: false })
+    expect(await db.select({ teamId: teamMembers.teamId, role: teamMembers.role }).from(teamMembers).where(eq(teamMembers.userId, u!.id))).toEqual([{ teamId: f.team.id, role: 'MEMBER' }])
     expect((await validInvitation(inv!.token)).status).toBe('accepted')
     await expect(acceptInvitationCore(inv!.token, 'X', 'senha-forte-123')).rejects.toThrow(/inválido/)
   })

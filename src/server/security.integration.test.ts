@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { users } from '#/db/schema'
+import { teamMembers, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { addLoginUser, makeTenant } from './test-fixtures'
 
@@ -46,7 +46,8 @@ describe('/api/auth/update-user', () => {
 
     expect(res.status).toBe(400)
     const [u] = await db.select().from(users).where(eq(users.email, email))
-    expect(u).toMatchObject({ tenantId: mine.tenant.id, teamId: mine.team.id, mustChangePassword: true })
+    expect(u).toMatchObject({ tenantId: mine.tenant.id, teamId: null, mustChangePassword: true })
+    expect(await db.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.userId, u!.id))).toEqual([{ teamId: mine.team.id }])
   })
 
   it('continua aceitando campos comuns, como o nome', async () => {

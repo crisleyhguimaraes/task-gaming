@@ -8,12 +8,12 @@ import { Notes } from '#/components/Notes'
 import { appRoute } from '#/lib/app-route'
 import { leadSourceLabels, leadStatusLabels, leadStatuses, parseSource } from '#/lib/leads'
 import { formatCents } from '#/lib/pipeline'
-import { assignLead, claimLead, deleteLead, getLead, getLeadOptions, updateLead } from '#/server/leads'
-import { can } from '#/server/roles'
+import { assignLead, claimLead, deleteLead, getLead, getMyTeamOptions, updateLead } from '#/server/leads'
+import { can, isMemberOf } from '#/server/roles'
 
 export const Route = createFileRoute('/_app/leads/$leadId')({
   loader: async ({ params }) => {
-    const [detail, options] = await Promise.all([getLead({ data: { leadId: params.leadId } }), getLeadOptions()])
+    const [detail, options] = await Promise.all([getLead({ data: { leadId: params.leadId } }), getMyTeamOptions()])
     return { ...detail, options }
   },
   component: LeadPage,
@@ -26,7 +26,7 @@ function LeadPage() {
   const navigate = useNavigate()
   const [error, setError] = React.useState<string | null>(null)
   const teamMembers = options.members.filter((m) => m.teamId === lead.teamId)
-  const canClaim = !lead.ownerId && lead.teamId === me.teamId && can(me, 'lead.write')
+  const canClaim = !lead.ownerId && isMemberOf(me, lead.teamId) && can(me, 'lead.write')
 
   async function act(fn: () => Promise<unknown>) {
     try {

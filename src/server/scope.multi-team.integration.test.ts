@@ -35,7 +35,7 @@ beforeAll(async () => {
   teamB = await addTeam(f, 'B')
   teamC = await addTeam(f, 'C')
   await Promise.all([teamA, teamB, teamC].map(seedTask))
-  const leaderAMemberB = await joinTeam(f, (await addUser(f, { role: 'TEAM_LEADER', team: teamA })).userId, teamB, 'MEMBER')
+  const leaderAMemberB = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: teamA, teamRole: 'LEADER' })).userId, teamB, 'MEMBER')
   profiles = {
     admin: await addAdmin(f),
     'líder em A e membro em B': leaderAMemberB,
@@ -98,32 +98,33 @@ describe('assertWithinScope com várias equipes', () => {
   it('líder age sobre membro da equipe que lidera e não sobre a que só integra', () => {
     const me = profiles['líder em A e membro em B']!
 
-    expect(() => assertWithinScope(me, { role: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).not.toThrow()
-    expect(() => assertWithinScope(me, { role: 'MEMBER', teamIds: [teamB.id] }, 'user.create')).toThrow('Sem permissão')
-    expect(() => assertWithinScope(me, { role: 'MEMBER', teamIds: [] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(me, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).not.toThrow()
+    expect(() => assertWithinScope(me, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamB.id] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(me, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [] }, 'user.create')).toThrow('Sem permissão')
   })
 
   it('quem está em várias equipes só entra no escopo se todas elas estiverem', () => {
     const me = profiles['líder em A e membro em B']!
 
-    expect(() => assertWithinScope(me, { role: 'MEMBER', teamIds: [teamA.id, teamB.id] }, 'user.create')).toThrow('Sem permissão')
-    expect(() => assertWithinScope(me, { role: 'MEMBER', teamIds: [teamA.id, teamC.id] }, 'user.create')).toThrow('Sem permissão')
-    expect(() => assertWithinScope(profiles.admin!, { role: 'MEMBER', teamIds: [teamA.id, teamB.id] }, 'user.create')).not.toThrow()
+    expect(() => assertWithinScope(me, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id, teamB.id] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(me, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id, teamC.id] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(profiles.admin!, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id, teamB.id] }, 'user.create')).not.toThrow()
   })
 
   it('membro comum só age onde a capability foi delegada ao papel dele', () => {
     const delegated = { ...profiles['membro em A']!, capabilityOverrides: { MEMBER: { 'user.create': true } } }
 
-    expect(() => assertWithinScope(delegated, { role: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).not.toThrow()
-    expect(() => assertWithinScope(delegated, { role: 'MEMBER', teamIds: [teamA.id] }, 'user.update')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(delegated, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).not.toThrow()
+    expect(() => assertWithinScope(delegated, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id] }, 'user.update')).toThrow('Sem permissão')
   })
 
   it('ninguém que não seja admin age sobre líder ou administrador', () => {
-    expect(() => assertWithinScope(profiles['líder em A e membro em B']!, { role: 'TEAM_LEADER', teamIds: [teamA.id] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(profiles['líder em A e membro em B']!, { role: 'MEMBER', teamRole: 'LEADER', teamIds: [teamA.id] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(profiles['líder em A e membro em B']!, { role: 'TENANT_ADMIN', teamRole: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).toThrow('Sem permissão')
   })
 
   it('membro comum não age sobre ninguém', () => {
-    expect(() => assertWithinScope(profiles['membro em A']!, { role: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).toThrow('Sem permissão')
+    expect(() => assertWithinScope(profiles['membro em A']!, { role: 'MEMBER', teamRole: 'MEMBER', teamIds: [teamA.id] }, 'user.create')).toThrow('Sem permissão')
   })
 })
 

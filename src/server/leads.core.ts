@@ -222,7 +222,7 @@ export async function assignLeadFor(me: AuthCtx, leadId: string, ownerId: string
   })
 }
 
-export async function leadOptionsFor(me: AuthCtx) {
+export async function myTeamOptionsFor(me: AuthCtx) {
   const teamList = await db
     .select({ id: teams.id, name: teams.name })
     .from(teams)

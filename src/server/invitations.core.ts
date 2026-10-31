@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '#/db'
-import type { Role } from '#/db/schema'
 import { invitations, teams, tenants, users } from '#/db/schema'
+import type { AssignableRole, TeamRole } from '#/lib/access'
 import { auth } from '#/lib/auth'
 import { recordAudit } from './audit.core'
 import { sendMail } from './mail'
@@ -10,7 +10,7 @@ import type { AuthCtx } from './roles'
 import { fail, requireCan } from './roles'
 import { assertWithinScope, inTenantTeams, teamIdsFrom } from './scope'
 import { assertTeamInTenant } from './teams.core'
-import { addMember, teamRoleOf } from './team-members.core'
+import { addMember } from './team-members.core'
 
 export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
 
@@ -19,7 +19,7 @@ export const invitationScope = (me: AuthCtx) => inTenantTeams(invitations, me)
 export async function listInvitationsFor(me: AuthCtx) {
   requireCan(me, 'invitation.manage')
   return db
-    .select({ id: invitations.id, email: invitations.email, role: invitations.role, teamName: teams.name, expiresAt: invitations.expiresAt, createdAt: invitations.createdAt })
+    .select({ id: invitations.id, email: invitations.email, role: invitations.role, teamRole: invitations.teamRole, teamName: teams.name, expiresAt: invitations.expiresAt, createdAt: invitations.createdAt })
     .from(invitations)
     .leftJoin(teams, eq(teams.id, invitations.teamId))
     .where(and(invitationScope(me), isNull(invitations.acceptedAt)))
@@ -29,8 +29,9 @@ export async function listInvitationsFor(me: AuthCtx) {
 const newToken = () => randomBytes(32).toString('hex')
 const newExpiry = () => new Date(Date.now() + SEVEN_DAYS)
 
-export async function createInvitationCore(me: AuthCtx, data: { email: string; teamId: string | null; role: Exclude<Role, 'SUPER_ADMIN'> }) {
-  assertWithinScope(me, { role: data.role, teamIds: teamIdsFrom(data.teamId) }, 'invitation.manage')
+export async function createInvitationCore(me: AuthCtx, data: { email: string; teamId: string | null; role: AssignableRole; teamRole?: TeamRole }) {
+  const { teamRole = 'MEMBER' } = data
+  assertWithinScope(me, { role: data.role, teamRole, teamIds: teamIdsFrom(data.teamId) }, 'invitation.manage')
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email))
   if (exists) fail('Este email já tem conta')
@@ -38,9 +39,9 @@ export async function createInvitationCore(me: AuthCtx, data: { email: string; t
     await tx.delete(invitations).where(and(eq(invitations.tenantId, me.tenantId), eq(invitations.email, data.email), isNull(invitations.acceptedAt)))
     const [created] = await tx
       .insert(invitations)
-      .values({ tenantId: me.tenantId, teamId: data.teamId, email: data.email, role: data.role, token: newToken(), invitedById: me.userId, expiresAt: newExpiry() })
+      .values({ tenantId: me.tenantId, teamId: data.teamId, email: data.email, role: data.role, teamRole, token: newToken(), invitedById: me.userId, expiresAt: newExpiry() })
       .returning()
-    await recordAudit(tx, me, { action: 'invitation.created', entityType: 'invitation', entityId: created!.id, meta: { email: data.email, role: data.role, teamId: data.teamId } })
+    await recordAudit(tx, me, { action: 'invitation.created', entityType: 'invitation', entityId: created!.id, meta: { email: data.email, role: data.role, teamId: data.teamId, teamRole } })
     return created!
   })
   await sendInvitation(inv)
@@ -94,22 +95,21 @@ export async function validInvitation(token: string) {
   return { status: 'valid' as const, ...row }
 }
 
+// Convites gravados antes da migração 0013 carregam o papel de líder em `role`.
+const rolesOf = ({ role, teamRole }: typeof invitations.$inferSelect) =>
+  role === 'TEAM_LEADER' ? ({ role: 'MEMBER', teamRole: 'LEADER' } as const) : ({ role, teamRole } as const)
+
 export async function acceptInvitationCore(token: string, name: string, password: string) {
   const r = await validInvitation(token)
   if (r.status !== 'valid') throw new Error('Convite inválido ou expirado')
+  const { role, teamRole } = rolesOf(r.inv)
   const { user } = await auth.api.createUser({
-    body: {
-      name,
-      email: r.inv.email,
-      password,
-      role: r.inv.role,
-      data: { tenantId: r.inv.tenantId, teamId: r.inv.teamId ?? undefined, mustChangePassword: false },
-    },
+    body: { name, email: r.inv.email, password, role, data: { tenantId: r.inv.tenantId, mustChangePassword: false } },
   })
   const actor = { userId: user.id, tenantId: r.inv.tenantId, name, impersonatedBy: null }
   await db.transaction(async (tx) => {
     await tx.update(invitations).set({ acceptedAt: new Date() }).where(eq(invitations.id, r.inv.id))
-    if (r.inv.teamId) await addMember(tx, actor, { teamId: r.inv.teamId, userId: user.id, role: teamRoleOf(r.inv.role) })
+    if (r.inv.teamId) await addMember(tx, actor, { teamId: r.inv.teamId, userId: user.id, role: teamRole })
     await recordAudit(tx, actor, { action: 'invitation.accepted', entityType: 'invitation', entityId: r.inv.id, meta: { email: r.inv.email } })
   })
   return { email: r.inv.email }

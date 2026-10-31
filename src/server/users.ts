@@ -3,10 +3,9 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { users } from '#/db/schema'
+import { assignableRoles, teamRoles } from '#/lib/access'
 import { authMiddleware, requireCan } from './auth-context'
 import { createUserFor, deactivateUserCore, listUsersFor, reactivateUserCore, updateUserCore } from './users.core'
-
-const assignableRoles = z.enum(['TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER'])
 
 export const listUsers = createServerFn()
   .middleware([authMiddleware])
@@ -20,7 +19,8 @@ export const createUser = createServerFn({ method: 'POST' })
       email: z.email(),
       password: z.string().min(8),
       teamId: z.uuid().nullable(),
-      role: assignableRoles,
+      role: z.enum(assignableRoles),
+      teamRole: z.enum(teamRoles).default('MEMBER'),
     }),
   )
   .handler(async ({ data, context: { auth: me } }) => {
@@ -30,11 +30,8 @@ export const createUser = createServerFn({ method: 'POST' })
 
 export const updateUser = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(z.object({ userId: z.string(), teamId: z.uuid().nullable(), role: assignableRoles }))
-  .handler(({ data, context: { auth: me } }) => {
-    requireCan(me, 'user.update')
-    return updateUserCore(me, data)
-  })
+  .validator(z.object({ userId: z.string(), role: z.enum(assignableRoles) }))
+  .handler(({ data, context: { auth: me } }) => updateUserCore(me, data))
 
 export const deactivateUser = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

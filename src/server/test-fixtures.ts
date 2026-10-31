@@ -6,13 +6,13 @@ import { auth } from '#/lib/auth'
 import { loadAuthCtx } from './auth-context.core'
 import { insertDefaultStages } from './stages.core'
 import type { AuthCtx } from './roles'
-import { teamRoleOf } from './team-members.core'
 
 type Team = { id: string }
+type TenantRole = Exclude<AuthCtx['role'], 'TEAM_LEADER'>
 
-async function linkToTeam(tenantId: string, team: Team | null, role: AuthCtx['role'], userId: string) {
+async function linkToTeam(tenantId: string, team: Team | null, role: TenantRole, userId: string, teamRole: TeamRole) {
   if (!team || role === 'SUPER_ADMIN') return
-  await db.insert(teamMembers).values({ teamId: team.id, userId, tenantId, role: teamRoleOf(role) })
+  await db.insert(teamMembers).values({ teamId: team.id, userId, tenantId, role: teamRole })
 }
 
 /** O contexto que o servidor montaria para a pessoa agora, lido do banco pelo mesmo carregador da sessão. */
@@ -21,13 +21,13 @@ export async function ctxFor(userId: string): Promise<AuthCtx> {
   return loadAuthCtx(user!, { impersonatedBy: null })
 }
 
-async function insertUser(tenantId: string, team: Team | null, role: AuthCtx['role'], id: string, name: string): Promise<AuthCtx> {
-  await db.insert(users).values({ id, name, email: `${id}@test.local`, role, tenantId, teamId: team?.id ?? null })
-  await linkToTeam(tenantId, team, role, id)
+async function insertUser(tenantId: string, team: Team | null, role: TenantRole, id: string, name: string, teamRole: TeamRole = 'MEMBER'): Promise<AuthCtx> {
+  await db.insert(users).values({ id, name, email: `${id}@test.local`, role, tenantId })
+  await linkToTeam(tenantId, team, role, id, teamRole)
   return ctxFor(id)
 }
 
-/** Vínculo extra, fora do dual-write: é assim que a pessoa passa a ter mais de uma equipe. */
+/** Vínculo extra: é assim que a pessoa passa a ter mais de uma equipe. */
 export async function joinTeam(f: { tenant: { id: string } }, userId: string, team: Team, role: TeamRole = 'MEMBER') {
   await db.insert(teamMembers).values({ teamId: team.id, userId, tenantId: f.tenant.id, role })
   return ctxFor(userId)
@@ -42,10 +42,10 @@ export async function addTeam(f: { tenant: { id: string } }, name = 'Outra equip
   return team!
 }
 
-/** `team: null` cria quem não pertence a nenhuma equipe. */
-export function addUser(f: { tenant: { id: string } }, { role, team }: { role: AuthCtx['role']; team: Team | null }) {
+/** `team: null` cria quem não pertence a nenhuma equipe; `role` é o papel de tenant e `teamRole`, o papel na equipe. */
+export function addUser(f: { tenant: { id: string } }, { role, team, teamRole }: { role: TenantRole; team: Team | null; teamRole?: TeamRole }) {
   const id = `u-${Math.random().toString(36).slice(2, 10)}`
-  return insertUser(f.tenant.id, team, role, id, `User ${id}`)
+  return insertUser(f.tenant.id, team, role, id, `User ${id}`, teamRole)
 }
 
 /** Usuário que entra de verdade pelo Better Auth, com o vínculo à equipe; o e-mail é `label-slug@test.local`. */
@@ -55,9 +55,9 @@ export async function addLoginUser(
 ) {
   const email = `${label}-${f.tenant.slug}@test.local`
   const { user } = await auth.api.createUser({
-    body: { name: label, email, password, role, data: { tenantId: f.tenant.id, teamId: f.team.id, mustChangePassword } },
+    body: { name: label, email, password, role, data: { tenantId: f.tenant.id, mustChangePassword } },
   })
-  await linkToTeam(f.tenant.id, f.team, role, user.id)
+  await linkToTeam(f.tenant.id, f.team, role, user.id, 'MEMBER')
   return { id: user.id, email }
 }
 
@@ -67,10 +67,10 @@ export async function makeTenant(members = 2) {
   const [tenant] = await db.insert(tenants).values({ name: `T ${suffix}`, slug: `t-${suffix}` }).returning()
   await insertDefaultStages(db, tenant!.id)
   const team = await addTeam({ tenant: tenant! }, 'Time')
-  const mk = (role: AuthCtx['role'], i: number) => insertUser(tenant!.id, team, role, `u-${suffix}-${i}`, `User ${i}`)
-  const leader = await mk('TEAM_LEADER', 0)
+  const mk = (i: number, teamRole: TeamRole) => insertUser(tenant!.id, team, 'MEMBER', `u-${suffix}-${i}`, `User ${i}`, teamRole)
+  const leader = await mk(0, 'LEADER')
   const list: Array<AuthCtx> = []
-  for (let i = 1; i <= members; i++) list.push(await mk('MEMBER', i))
+  for (let i = 1; i <= members; i++) list.push(await mk(i, 'MEMBER'))
   return {
     tenant: tenant!,
     team,

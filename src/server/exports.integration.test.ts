@@ -35,7 +35,7 @@ beforeAll(async () => {
   other = await makeTenant(1)
   admin = await addAdmin(f)
   const [team2] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Outra' }).returning()
-  rival = await addUser(f, { role: 'TEAM_LEADER', team: team2! })
+  rival = await addUser(f, { role: 'MEMBER', team: team2!, teamRole: 'LEADER' })
   await newTask('Da equipe principal', { priority: 'high', assignedToId: f.members[0]!.userId })
   await newTask('Da outra equipe', { teamId: team2!.id })
   await newTask('=HYPERLINK("http://evil","clique")')

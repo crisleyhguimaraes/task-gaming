@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Role, TeamRole } from '#/lib/access'
 import type { AuthCtx } from './roles'
-import { ForbiddenError, canAccessTeam, canManage, canSee, capabilities, can, defaultGrants, forbid, isManager, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
+import { ForbiddenError, canAccessTeam, canManage, canSee, capabilities, capabilityScope, can, defaultGrants, defaultTeamId, forbid, isManager, isMemberOf, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
 
 const A = 'team-a'
 const B = 'team-b'
@@ -56,6 +56,23 @@ describe('capabilities', () => {
   })
 })
 
+describe('team.member.manage', () => {
+  const leaderOfAMemberOfB = (overrides: AuthCtx['capabilityOverrides'] = {}) => person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']], overrides)
+
+  it('vale por equipe e o padrão é só de admin', () => {
+    expect(capabilityScope['team.member.manage']).toBe('team')
+    expect(hierarchy.filter((r) => can(as(r), 'team.member.manage'))).toEqual(['TENANT_ADMIN', 'SUPER_ADMIN'])
+  })
+
+  it('delegada ao líder, vale só nas equipes que ele lidera', () => {
+    const me = leaderOfAMemberOfB({ LEADER: { 'team.member.manage': true } })
+
+    expect(can(me, 'team.member.manage', A)).toBe(true)
+    expect(can(me, 'team.member.manage', B)).toBe(false)
+    expect(can(leaderOfAMemberOfB(), 'team.member.manage', A)).toBe(false)
+  })
+})
+
 describe('overrides por tenant', () => {
   it('sem override vale o padrão de fábrica', () => {
     expect(can(as('MEMBER'), 'export.csv')).toBe(false)
@@ -84,7 +101,7 @@ describe('capabilities não delegáveis', () => {
   })
 
   it('cobrem tudo o que vale para o tenant inteiro', () => {
-    expect([...nonDelegableCapabilities].sort()).toEqual(['audit.read', 'permissions.manage', 'pipeline.configure', 'team.manage', 'tenant.configure', 'tenant.manage'])
+    expect([...nonDelegableCapabilities].sort()).toEqual(['audit.read', 'permissions.manage', 'pipeline.configure', 'team.manage', 'tenant.configure', 'tenant.manage', 'user.update'])
   })
 })
 
@@ -194,6 +211,21 @@ describe('predicados sobre vínculos', () => {
     expect(canAccessTeam(me, B)).toBe(true)
     expect(canAccessTeam(me, 'team-c')).toBe(false)
     expect(canAccessTeam(teamless, A)).toBe(false)
+  })
+
+  it('isMemberOf: só vínculo conta, nem o admin entra de graça', () => {
+    expect(isMemberOf(me, B)).toBe(true)
+    expect(isMemberOf(me, 'team-c')).toBe(false)
+    expect(isMemberOf(admin, A)).toBe(false)
+  })
+
+  it('defaultTeamId: a primeira das minhas equipes (na ordem dos vínculos) que a lista oferece; sem vínculo, a primeira da lista; lista vazia, vazio', () => {
+    const [x, y, z] = [{ id: 'team-x' }, { id: A }, { id: B }]
+
+    expect(defaultTeamId(me, [x, z, y])).toBe(A)
+    expect(defaultTeamId(me, [x, z])).toBe(B)
+    expect(defaultTeamId(admin, [x, y])).toBe('team-x')
+    expect(defaultTeamId(me, [])).toBe('')
   })
 
   it('managedTeamIds lista só as equipes que a pessoa lidera', () => {

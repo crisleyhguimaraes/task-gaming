@@ -2,7 +2,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, leads, notes, opportunities, pipelineStages, teams } from '#/db/schema'
-import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, leadOptionsFor, leastLoadedOwner, listLeadsFor, updateLeadFor } from './leads.core'
+import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, myTeamOptionsFor, leastLoadedOwner, listLeadsFor, updateLeadFor } from './leads.core'
 import { addNoteFor } from './notes.core'
 import type { AuthCtx } from './roles'
 import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
@@ -419,8 +419,8 @@ describe('opções de equipe e pessoas', () => {
   it('membro e líder só enxergam a própria equipe; admin vê todas do tenant, sem gente de fora', async () => {
     const ids = (list: Array<{ id: string }>) => list.map((x) => x.id).sort()
 
-    const mine = await leadOptionsFor(ana())
-    const all = await leadOptionsFor(admin)
+    const mine = await myTeamOptionsFor(ana())
+    const all = await myTeamOptionsFor(admin)
 
     expect(ids(mine.teams)).toEqual([f.team.id])
     expect(ids(mine.members)).toEqual(ids([f.leader, admin, ...f.members].map((u) => ({ id: u.userId }))))
@@ -436,14 +436,14 @@ describe('usuário sem equipe', () => {
     const teamless = await addUser(f, { role: 'MEMBER', team: null })
 
     expect(await listLeadsFor(teamless, {})).toEqual({ leads: [], total: 0 })
-    expect(await leadOptionsFor(teamless)).toEqual({ teams: [], members: [] })
+    expect(await myTeamOptionsFor(teamless)).toEqual({ teams: [], members: [] })
   })
 })
 
 describe('líder de uma equipe e membro de outra', () => {
   it('assume lead do pool da equipe que só integra, mas não de uma terceira', async () => {
     const teamB = await addTeam(f, 'B-leads')
-    const me = await joinTeam(f, (await addUser(f, { role: 'TEAM_LEADER', team: f.team })).userId, teamB, 'MEMBER')
+    const me = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team, teamRole: 'LEADER' })).userId, teamB, 'MEMBER')
     const inB = await seedLead({ teamId: teamB.id })
     const inOther = await seedLead({ teamId: (await addTeam(f, 'C-leads')).id })
 
@@ -457,7 +457,7 @@ describe('líder de uma equipe e membro de outra', () => {
     const teamB = await addTeam(f, 'B-opcoes')
     const both = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB)
 
-    const { members } = await leadOptionsFor(await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB))
+    const { members } = await myTeamOptionsFor(await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB))
 
     expect(members.filter((m) => m.id === both.userId).map((m) => m.teamId).sort()).toEqual([f.team.id, teamB.id].sort())
   })

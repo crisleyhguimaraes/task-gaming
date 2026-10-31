@@ -69,18 +69,38 @@ Outras regras que moldam o jogo:
 
 ## Papéis
 
-| Papel | Pode |
+Há dois níveis de papel. O **papel de tenant** (`users.role`) diz o que a pessoa é na organização; o **papel de equipe** (`team_members.role`) diz o que ela é *em cada equipe*. Uma pessoa pode estar em várias equipes, com papel diferente em cada uma: líder em A e membro em B.
+
+| Papel de tenant | Pode |
 |---|---|
 | `SUPER_ADMIN` | criar tenants e o primeiro admin de cada um; entrar como qualquer usuário (impersonação) |
-| `TENANT_ADMIN` | equipes, usuários, convites, tarefas e desafios de qualquer equipe, ranking geral |
-| `TEAM_LEADER` | tarefas, usuários e convites da própria equipe; cancelar, validar pontos, devolver ao pool |
+| `TENANT_ADMIN` | equipes, usuários, convites, vínculos e tarefas e desafios de qualquer equipe, ranking geral |
+| `MEMBER` | o que o papel dele em cada equipe permite |
+
+| Papel de equipe | Pode, naquela equipe |
+|---|---|
+| `LEADER` | tarefas, usuários e convites da equipe; cancelar, validar pontos, devolver ao pool; tirar membros da equipe |
 | `MEMBER` | executar as próprias tarefas, puxar do pool, criar e tentar desafios da equipe |
 
-Não existe cadastro aberto. Pessoas entram por **convite por email** (link válido por 7 dias) ou criadas pelo gestor com senha temporária e troca obrigatória no primeiro login. Sessões duram 10 horas; um novo login derruba o anterior.
+Líder não é papel de tenant: quem lidera uma equipe é `MEMBER` no tenant com vínculo `LEADER` nela. O admin que está numa equipe entra como `MEMBER` dela, e a equipe pode ficar sem líder (só o admin gerencia os líderes).
+
+Não existe cadastro aberto. Pessoas entram por **convite por email** (link válido por 7 dias) ou criadas pelo gestor com senha temporária e troca obrigatória no primeiro login. O convite e a criação carregam o papel de tenant (`TENANT_ADMIN` ou `MEMBER`) e, junto da equipe escolhida, o papel de equipe (`LEADER` ou `MEMBER`); cada convite vale para uma equipe. Sessões duram 10 horas; um novo login derruba o anterior.
 
 ### Permissões por capability
 
-Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que a pessoa pode **como líder da equipe** e **como membro** em **Configurações → Permissões**; o papel vale por equipe, então quem lidera A e integra B tem os poderes de líder só em A; o papel de admin é fixo, e as capabilities que valem para o tenant inteiro (`tenant.manage`, `tenant.configure`, `team.manage`, `permissions.manage`, `audit.read`, `pipeline.configure`) não são delegáveis. Quem recebe uma capability delegada continua restrito às equipes em que ela vale para o seu papel. O escopo por equipe (`canManage`/`canSee`, sobre os vínculos em `team_members`) segue valendo por baixo.
+Cada ação sensível exige uma *capability* (`audit.read`, `user.update`, `export.csv`, `lead.import`…), com um padrão por papel em `src/server/roles.ts`. O gestor geral ajusta, por tenant, o que a pessoa pode **como líder da equipe** e **como membro** em **Configurações → Permissões**; o papel vale por equipe, então quem lidera A e integra B tem os poderes de líder só em A; o papel de admin é fixo, e as capabilities que valem para o tenant inteiro (`tenant.manage`, `tenant.configure`, `team.manage`, `user.update`, `permissions.manage`, `audit.read`, `pipeline.configure`) não são delegáveis. Quem recebe uma capability delegada continua restrito às equipes em que ela vale para o seu papel. O escopo por equipe (`canManage`/`canSee`, sobre os vínculos em `team_members`) segue valendo por baixo.
+
+### Vínculos com equipes
+
+Quem já tem conta entra em outra equipe, sai dela ou muda de papel nela por vínculos explícitos, cada um auditado (`team.member_added`, `team.member_removed`, `team.member_role_changed`) e idempotente:
+
+| Ação | Quem faz |
+|---|---|
+| Adicionar uma pessoa a uma equipe | quem tem `team.member.manage` naquela equipe: só o admin por padrão; o admin pode delegá-la ao líder, que então adiciona **apenas como `MEMBER`**, e só nas equipes que lidera |
+| Promover a líder, rebaixar ou trocar o papel | só o admin |
+| Tirar uma pessoa da equipe | o admin, ou o líder daquela equipe tirando um `MEMBER` dela (nunca outro líder nem a si mesmo) |
+
+Quem sai de uma equipe devolve ao pool só o trabalho aberto *daquela* equipe; o das outras continua com a pessoa. Quem já está na equipe com outro papel não muda de papel ao ser adicionado de novo: a troca é uma ação à parte. `user.update` é só o papel de tenant e só do admin.
 
 Usuários podem ser **desativados** (derruba as sessões e devolve o trabalho aberto ao pool) e reativados. Toda negação de acesso vira um evento `access.denied`.
 

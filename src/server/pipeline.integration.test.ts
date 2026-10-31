@@ -40,7 +40,7 @@ const stageId = async (tenant: Fixture, name: string) => {
 const deal = (overrides: Partial<Parameters<typeof createOpportunityFor>[2]> = {}) => ({ title: 'Contrato anual', amountCents: 100_000, expectedCloseDate: '2026-12-31', ...overrides })
 
 async function newOpportunity(me: AuthCtx, tenant = f, data = deal(), lead?: { id: string }) {
-  return createOpportunityFor(me, (lead ?? (await newLead(tenant, { teamId: me.teamId ?? tenant.team.id }))).id, data)
+  return createOpportunityFor(me, (lead ?? (await newLead(tenant, { teamId: me.memberships[0]?.teamId ?? tenant.team.id }))).id, data)
 }
 
 const reload = async (id: string) => (await db.select().from(opportunities).where(eq(opportunities.id, id)))[0]!
@@ -410,7 +410,7 @@ describe('listPipelineFor', () => {
     tAdmin = await addAdmin(t)
     const [team] = await db.insert(teams).values({ tenantId: t.tenant.id, name: 'B' }).returning()
     tTeamB = team!
-    tOutsider = await addUser(t, { role: 'TEAM_LEADER', team: team! })
+    tOutsider = await addUser(t, { role: 'MEMBER', team: team!, teamRole: 'LEADER' })
 
     const [a, b] = [t.members[0]!, t.members[1]!]
     const open = (title: string, amountCents: number, ownerId: string | null) => newOpportunity(t.leader, t, deal({ title, amountCents, ownerId }))
@@ -516,7 +516,7 @@ describe('funnelFor', () => {
 
     const [team] = await db.insert(teams).values({ tenantId: t.tenant.id, name: 'B' }).returning()
     teamBId = team!.id
-    teamBLeader = await addUser(t, { role: 'TEAM_LEADER', team: team! })
+    teamBLeader = await addUser(t, { role: 'MEMBER', team: team!, teamRole: 'LEADER' })
     await createOpportunityFor(tAdmin, (await newLead(t, { teamId: teamBId })).id, deal({ title: 'Outra equipe' }))
   })
   afterAll(() => t.cleanup())

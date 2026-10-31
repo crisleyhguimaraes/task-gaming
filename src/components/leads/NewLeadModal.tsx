@@ -3,15 +3,15 @@ import { AlertTriangle } from 'lucide-react'
 import * as React from 'react'
 import { Modal } from '#/components/Modal'
 import { createLead } from '#/server/leads'
-import type { getLeadOptions } from '#/server/leads'
+import type { getMyTeamOptions } from '#/server/leads'
 import type { DuplicateCandidate } from '#/server/leads.core'
 import type { AuthCtx } from '#/server/roles'
-import { canManage } from '#/server/roles'
+import { canManage, defaultTeamId } from '#/server/roles'
 import { LeadFields, readLeadFields } from './LeadFields'
 
-type LeadOptions = Awaited<ReturnType<typeof getLeadOptions>>
+type LeadOptions = Awaited<ReturnType<typeof getMyTeamOptions>>
 
-type Props = { open: boolean; onClose: () => void; options: LeadOptions; me: Pick<AuthCtx, 'userId' | 'teamId' | 'role' | 'memberships'> }
+type Props = { open: boolean; onClose: () => void; options: LeadOptions; me: Pick<AuthCtx, 'userId' | 'role' | 'memberships'> }
 
 export function NewLeadModal({ open, onClose, ...rest }: Props) {
   return (
@@ -24,7 +24,7 @@ export function NewLeadModal({ open, onClose, ...rest }: Props) {
 function NewLeadForm({ onClose, options, me }: Omit<Props, 'open'>) {
   const router = useRouter()
   const formRef = React.useRef<HTMLFormElement>(null)
-  const [teamId, setTeamId] = React.useState(options.teams.find((t) => t.id === me.teamId)?.id ?? options.teams[0]?.id ?? '')
+  const [teamId, setTeamId] = React.useState(defaultTeamId(me, options.teams))
   const [duplicates, setDuplicates] = React.useState<Array<DuplicateCandidate>>([])
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)

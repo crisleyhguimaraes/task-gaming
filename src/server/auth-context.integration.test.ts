@@ -23,11 +23,11 @@ afterAll(async () => {
 describe('loadAuthCtx', () => {
   it('traz identidade e flags da sessão', async () => {
     const ctx = await loadAuthCtx(
-      { id: f.leader.userId, tenantId: f.tenant.id, role: 'TEAM_LEADER', name: 'Léo', mustChangePassword: true },
+      { id: f.leader.userId, tenantId: f.tenant.id, role: 'MEMBER', name: 'Léo', mustChangePassword: true },
       { impersonatedBy: 'super-1' },
     )
 
-    expect(ctx).toMatchObject({ userId: f.leader.userId, tenantId: f.tenant.id, role: 'TEAM_LEADER', name: 'Léo', impersonatedBy: 'super-1', mustChangePassword: true })
+    expect(ctx).toMatchObject({ userId: f.leader.userId, tenantId: f.tenant.id, role: 'MEMBER', name: 'Léo', impersonatedBy: 'super-1', mustChangePassword: true })
   })
 
   it('carrega os vínculos com o papel em cada equipe, na ordem em que a pessoa entrou', async () => {
@@ -42,12 +42,14 @@ describe('loadAuthCtx', () => {
     ])
   })
 
-  it('o alias teamId é a equipe do primeiro vínculo, ou null sem vínculo', async () => {
+  it('quem não tem vínculo carrega memberships vazio, e o contexto não tem mais o alias teamId', async () => {
     const teamless = await addUser(f, { role: 'MEMBER', team: null })
 
-    expect((await ctxFor(f.leader.userId)).teamId).toBe(f.team.id)
-    expect((await ctxFor(teamless.userId)).teamId).toBeNull()
-    expect((await ctxFor(teamless.userId)).memberships).toEqual([])
+    const ctx = await ctxFor(teamless.userId)
+
+    expect(ctx.memberships).toEqual([])
+    expect(ctx).not.toHaveProperty('teamId')
+    expect(await ctxFor(f.leader.userId)).toMatchObject({ memberships: [{ teamId: f.team.id, role: 'LEADER' }] })
   })
 
   it('o vínculo vale na hora: entrar e sair de uma equipe aparece no próximo carregamento', async () => {

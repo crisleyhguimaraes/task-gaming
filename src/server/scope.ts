@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
-import type { Role } from '#/lib/access'
+import type { Role, TeamRole } from '#/lib/access'
 import { teamMembers, users } from '#/db/schema'
 import type { AuthCtx, Capability } from './roles'
 import { can, fail, forbid, isAdmin, managedTeamIds } from './roles'
@@ -50,12 +50,12 @@ export function usersInScope(me: AuthCtx, options: ScopeOptions = {}) {
 
 export const teamIdsFrom = (teamId: string | null) => (teamId ? [teamId] : [])
 
-/** Quem não é admin só age sobre membro comum e só se todas as equipes da pessoa estiverem no seu escopo: a ação vale para ela inteira, não por equipe. */
-export function assertWithinScope(me: AuthCtx, target: { role: Role; teamIds: ReadonlyArray<string> }, capability: Capability) {
+/** Quem não é admin só age sobre membro comum (de tenant e de equipe) e só se todas as equipes da pessoa estiverem no seu escopo: a ação vale para ela inteira, não por equipe. */
+export function assertWithinScope(me: AuthCtx, target: { role: Role; teamRole: TeamRole; teamIds: ReadonlyArray<string> }, capability: Capability) {
   const ids = teamIdsOf(me, capability)
   if (ids === 'all') return
   const allInScope = target.teamIds.length > 0 && target.teamIds.every((id) => ids.includes(id))
-  if (target.role !== 'MEMBER' || !allInScope) forbid()
+  if (target.role !== 'MEMBER' || target.teamRole !== 'MEMBER' || !allInScope) forbid()
 }
 
 /** Regra única de "responsável ativo": membro da equipe, do tenant, e não desativado. */

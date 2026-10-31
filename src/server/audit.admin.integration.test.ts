@@ -47,22 +47,23 @@ describe('usuários', () => {
     const { id } = await createUserFor(admin, { name: 'Novo', email, password: 'senha-forte-123', teamId: f.team.id, role: 'MEMBER' })
 
     const [e] = await eventsOf(f.tenant.id, id)
-    expect(e).toMatchObject({ action: 'user.created', entityType: 'user', actorId: admin.userId, meta: { email, role: 'MEMBER', teamId: f.team.id } })
+    expect(e).toMatchObject({ action: 'user.created', entityType: 'user', actorId: admin.userId, meta: { email, role: 'MEMBER', teamId: f.team.id, teamRole: 'MEMBER' } })
   })
 
-  it('alterar papel e equipe guarda antes e depois', async () => {
+  it('alterar o papel de tenant guarda antes e depois', async () => {
     const member = f.members[0]!
 
-    await updateUserCore(admin, { userId: member.userId, teamId: null, role: 'TEAM_LEADER' })
+    await updateUserCore(admin, { userId: member.userId, role: 'TENANT_ADMIN' })
 
     const [e] = await eventsOf(f.tenant.id, member.userId)
-    expect(e).toMatchObject({ action: 'user.updated', changes: { role: { from: 'MEMBER', to: 'TEAM_LEADER' }, teamId: { from: f.team.id, to: null } } })
+    expect(e).toMatchObject({ action: 'user.updated' })
+    expect(e!.changes).toEqual({ role: { from: 'MEMBER', to: 'TENANT_ADMIN' } })
   })
 
   it('salvar sem mudar nada não grava evento', async () => {
     const member = f.members[1]!
 
-    await updateUserCore(admin, { userId: member.userId, teamId: f.team.id, role: 'MEMBER' })
+    await updateUserCore(admin, { userId: member.userId, role: 'MEMBER' })
 
     expect(await eventsOf(f.tenant.id, member.userId)).toHaveLength(0)
   })

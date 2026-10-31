@@ -1,10 +1,12 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { Mail, RotateCw, UserCheck, UserPlus, UserX, X } from 'lucide-react'
 import * as React from 'react'
-import { roleLabel } from '#/lib/format'
+import type { TeamRole } from '#/lib/access'
+import { displayRole } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
 import { cancelInvitation, createInvitation, listInvitations, resendInvitation } from '#/server/invitations'
-import { can, isAdmin } from '#/server/roles'
+import { can, isAdmin, managedTeamIds } from '#/server/roles'
+import { addTeamMember, removeTeamMember, setTeamMemberRole } from '#/server/team-members'
 import { createUser, deactivateUser, listUsers, reactivateUser, updateUser } from '#/server/users'
 
 export const Route = createFileRoute('/_app/settings/users')({
@@ -15,7 +17,30 @@ export const Route = createFileRoute('/_app/settings/users')({
   component: Users,
 })
 
-const ROLES = ['MEMBER', 'TEAM_LEADER', 'TENANT_ADMIN'] as const
+const ROLE_CHOICES = ['MEMBER', 'LEADER', 'TENANT_ADMIN'] as const
+type RoleChoice = (typeof ROLE_CHOICES)[number]
+type UserRow = Awaited<ReturnType<typeof listUsers>>['users'][number]
+
+const choiceLabel: Record<RoleChoice, string> = { MEMBER: 'Membro', LEADER: 'Líder de equipe', TENANT_ADMIN: 'Gestor geral' }
+
+const rolesOf = (choice: RoleChoice) => ({ role: choice === 'TENANT_ADMIN' ? 'TENANT_ADMIN' : 'MEMBER', teamRole: choice === 'LEADER' ? 'LEADER' : 'MEMBER' }) as const
+
+const choiceOf = ({ role, memberships }: { role: string; memberships: ReadonlyArray<{ role: TeamRole }> }): RoleChoice =>
+  role === 'TENANT_ADMIN' ? 'TENANT_ADMIN' : memberships.some((m) => m.role === 'LEADER') ? 'LEADER' : 'MEMBER'
+
+async function moveToTeam(u: UserRow, teamId: string) {
+  const current = u.memberships[0]
+  if (current) await removeTeamMember({ data: { userId: u.id, teamId: current.teamId } })
+  if (teamId) await addTeamMember({ data: { userId: u.id, teamId, role: current?.role ?? 'MEMBER' } })
+}
+
+async function changeRole(u: UserRow, choice: RoleChoice) {
+  const current = u.memberships[0]
+  if (choice === 'LEADER' && !current) throw new Error('Escolha a equipe antes de tornar a pessoa líder')
+  const { role, teamRole } = rolesOf(choice)
+  if (u.role !== role) await updateUser({ data: { userId: u.id, role } })
+  if (current) await setTeamMemberRole({ data: { userId: u.id, teamId: current.teamId, role: teamRole } })
+}
 
 function Users() {
   const { me } = appRoute.useRouteContext()
@@ -43,19 +68,20 @@ function Users() {
     act(() => deactivateUser({ data: { userId: u.id, reason: reason.trim() || undefined } }))
   }
 
+  const ownTeamId = managedTeamIds(me)[0] ?? me.memberships[0]?.teamId ?? null
+
+  function readPlacement(f: FormData) {
+    const choice = restricted ? 'MEMBER' : (String(f.get('role')) as RoleChoice)
+    return { teamId: restricted ? ownTeamId : String(f.get('teamId')) || null, ...rolesOf(choice) }
+  }
+
   function onCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = e.currentTarget
     const f = new FormData(form)
     act(() =>
       createUser({
-        data: {
-          name: String(f.get('name')),
-          email: String(f.get('email')),
-          password: String(f.get('password')),
-          teamId: String(f.get('teamId')) || null,
-          role: (restricted ? 'MEMBER' : String(f.get('role'))) as (typeof ROLES)[number],
-        },
+        data: { name: String(f.get('name')), email: String(f.get('email')), password: String(f.get('password')), ...readPlacement(f) },
       }).then(() => form.reset()),
     )
   }
@@ -65,13 +91,7 @@ function Users() {
     const form = e.currentTarget
     const f = new FormData(form)
     act(() =>
-      createInvitation({
-        data: {
-          email: String(f.get('email')),
-          teamId: String(f.get('teamId')) || null,
-          role: (restricted ? 'MEMBER' : String(f.get('role'))) as (typeof ROLES)[number],
-        },
-      }).then(() => form.reset()),
+      createInvitation({ data: { email: String(f.get('email')), ...readPlacement(f) } }).then(() => form.reset()),
     )
   }
 
@@ -79,7 +99,7 @@ function Users() {
     <>
       <div className="space-y-1">
         <label htmlFor="teamId">Equipe</label>
-        <select id="teamId" name="teamId" defaultValue={restricted ? (me.teamId ?? '') : ''} disabled={restricted}>
+        <select id="teamId" name="teamId" defaultValue={restricted ? (ownTeamId ?? '') : ''} disabled={restricted}>
           {!restricted && <option value="">Sem equipe</option>}
           {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
@@ -88,7 +108,7 @@ function Users() {
         <div className="space-y-1">
           <label htmlFor="role">Papel</label>
           <select id="role" name="role" defaultValue="MEMBER">
-            {ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
+            {ROLE_CHOICES.map((r) => <option key={r} value={r}>{choiceLabel[r]}</option>)}
           </select>
         </div>
       )}
@@ -136,7 +156,7 @@ function Users() {
               <li key={i.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <div className="min-w-0">
                   <div className="truncate text-sm">{i.email}</div>
-                  <div className="text-xs text-neutral-500">{roleLabel[i.role]}{i.teamName ? ` · ${i.teamName}` : ''} · expira {new Date(i.expiresAt).toLocaleDateString('pt-BR')}</div>
+                  <div className="text-xs text-neutral-500">{choiceLabel[choiceOf({ role: i.role, memberships: [{ role: i.teamRole }] })]}{i.teamName ? ` · ${i.teamName}` : ''} · expira {new Date(i.expiresAt).toLocaleDateString('pt-BR')}</div>
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => act(() => resendInvitation({ data: { invitationId: i.id } }))} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50" title="Reenviar"><RotateCw className="h-4 w-4" /></button>
@@ -160,24 +180,20 @@ function Users() {
             <div className="flex items-center gap-2">
               {canUpdate ? (
                 <>
-                  <select
-                    value={u.memberships[0]?.teamId ?? ''}
-                    onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: e.target.value || null, role: u.role as (typeof ROLES)[number] } }))}
-                    className="w-auto py-1 text-xs"
-                  >
-                    <option value="">Sem equipe</option>
-                    {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                  <select
-                    value={u.role}
-                    onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: u.memberships[0]?.teamId ?? null, role: e.target.value as (typeof ROLES)[number] } }))}
-                    className="w-auto py-1 text-xs"
-                  >
-                    {ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
+                  {u.memberships.length > 1 ? (
+                    <span className="text-xs text-neutral-400">{u.memberships.map((m) => m.teamName).join(', ')}</span>
+                  ) : (
+                    <select value={u.memberships[0]?.teamId ?? ''} onChange={(e) => act(() => moveToTeam(u, e.target.value))} className="w-auto py-1 text-xs">
+                      <option value="">Sem equipe</option>
+                      {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  )}
+                  <select value={choiceOf(u)} onChange={(e) => act(() => changeRole(u, e.target.value as RoleChoice))} className="w-auto py-1 text-xs">
+                    {ROLE_CHOICES.map((r) => <option key={r} value={r}>{choiceLabel[r]}</option>)}
                   </select>
                 </>
               ) : (
-                <span className="text-xs text-neutral-400">{roleLabel[u.role]}</span>
+                <span className="text-xs text-neutral-400">{displayRole(u)}</span>
               )}
               {canDeactivate && u.id !== me.userId && (
                 u.banned ? (

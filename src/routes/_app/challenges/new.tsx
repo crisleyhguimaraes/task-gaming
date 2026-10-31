@@ -3,10 +3,10 @@ import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
 import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
 import { createChallenge } from '#/server/challenges'
-import { getLeadOptions } from '#/server/leads'
+import { getMyTeamOptions } from '#/server/leads'
 
 export const Route = createFileRoute('/_app/challenges/new')({
-  loader: () => getLeadOptions(),
+  loader: () => getMyTeamOptions(),
   component: NewChallenge,
 })
 
