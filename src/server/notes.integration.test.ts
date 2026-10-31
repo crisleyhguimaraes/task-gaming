@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, leads, opportunities, pipelineStages, tasks, teams, users } from '#/db/schema'
+import { auditEvents, leads, opportunities, pipelineStages, tasks, teams } from '#/db/schema'
 import { addNoteFor, listNotesFor } from './notes.core'
 import type { AuthCtx } from './roles'
-import { makeTenant } from './test-fixtures'
+import { addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
@@ -29,8 +29,7 @@ beforeAll(async () => {
   f = await makeTenant(1)
   other = await makeTenant(0)
   const [team2] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Outra equipe' }).returning()
-  await db.insert(users).values({ id: `out-${f.tenant.slug}`, name: 'Fora', email: `out-${f.tenant.slug}@test.local`, role: 'MEMBER', tenantId: f.tenant.id, teamId: team2!.id })
-  outsider = { userId: `out-${f.tenant.slug}`, tenantId: f.tenant.id, teamId: team2!.id, role: 'MEMBER', name: 'Fora', impersonatedBy: null, mustChangePassword: false }
+  outsider = await addUser(f, { role: 'MEMBER', team: team2! })
 })
 afterAll(async () => {
   await f.cleanup()

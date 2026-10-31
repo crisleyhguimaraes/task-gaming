@@ -71,6 +71,20 @@
       "when": 1793453048737,
       "tag": "0009_furos_de_justica_dos_desafios",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793457125496,
+      "tag": "0010_varias_equipes_expand",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793457236952,
+      "tag": "0011_vinculo_apaga_com_a_equipe",
+      "breakpoints": true
     }
   ]
 }

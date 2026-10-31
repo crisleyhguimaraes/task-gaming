@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, leads, notes, opportunities, pipelineStages, teams, users } from '#/db/schema'
+import { auditEvents, leads, notes, opportunities, pipelineStages, teams } from '#/db/schema'
 import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, leadOptionsFor, leastLoadedOwner, listLeadsFor, updateLeadFor } from './leads.core'
 import { addNoteFor } from './notes.core'
 import type { AuthCtx } from './roles'
@@ -51,8 +51,7 @@ beforeAll(async () => {
   otherTenantAdmin = await addAdmin(other)
   const [team2] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Outra equipe' }).returning()
   otherTeamId = team2!.id
-  await db.insert(users).values({ id: `out-${f.tenant.slug}`, name: 'Fora', email: `out-${f.tenant.slug}@test.local`, role: 'MEMBER', tenantId: f.tenant.id, teamId: otherTeamId })
-  outsider = { userId: `out-${f.tenant.slug}`, tenantId: f.tenant.id, teamId: otherTeamId, role: 'MEMBER', name: 'Fora', impersonatedBy: null, mustChangePassword: false }
+  outsider = await addUser(f, { role: 'MEMBER', team: team2! })
 })
 afterAll(async () => {
   await f.cleanup()

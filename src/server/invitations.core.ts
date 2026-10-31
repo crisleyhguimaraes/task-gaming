@@ -10,6 +10,7 @@ import type { AuthCtx } from './roles'
 import { fail, requireCan } from './roles'
 import { assertWithinScope, inTenantTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
+import { addMember, teamRoleOf } from './team-members.core'
 
 export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
 
@@ -105,13 +106,11 @@ export async function acceptInvitationCore(token: string, name: string, password
       data: { tenantId: r.inv.tenantId, teamId: r.inv.teamId ?? undefined, mustChangePassword: false },
     },
   })
+  const actor = { userId: user.id, tenantId: r.inv.tenantId, name, impersonatedBy: null }
   await db.transaction(async (tx) => {
     await tx.update(invitations).set({ acceptedAt: new Date() }).where(eq(invitations.id, r.inv.id))
-    await recordAudit(
-      tx,
-      { userId: user.id, tenantId: r.inv.tenantId, name, impersonatedBy: null },
-      { action: 'invitation.accepted', entityType: 'invitation', entityId: r.inv.id, meta: { email: r.inv.email } },
-    )
+    if (r.inv.teamId) await addMember(tx, actor, { teamId: r.inv.teamId, userId: user.id, role: teamRoleOf(r.inv.role) })
+    await recordAudit(tx, actor, { action: 'invitation.accepted', entityType: 'invitation', entityId: r.inv.id, meta: { email: r.inv.email } })
   })
   return { email: r.inv.email }
 }

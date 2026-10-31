@@ -20,9 +20,7 @@ const DAY_MS = 86_400_000
 
 async function addTeamB() {
   const [team] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Equipe B' }).returning()
-  const id = `b-${f.tenant.slug}`
-  await db.insert(users).values({ id, name: 'Fora', email: `${id}@test.local`, role: 'MEMBER', tenantId: f.tenant.id, teamId: team!.id })
-  outsider = { userId: id, tenantId: f.tenant.id, teamId: team!.id, role: 'MEMBER', name: 'Fora', impersonatedBy: null, mustChangePassword: false }
+  outsider = await addUser(f, { role: 'MEMBER', team: team! })
   teamB = team!
 }
 
@@ -412,8 +410,7 @@ describe('listPipelineFor', () => {
     tAdmin = await addAdmin(t)
     const [team] = await db.insert(teams).values({ tenantId: t.tenant.id, name: 'B' }).returning()
     tTeamB = team!
-    await db.insert(users).values({ id: `tb-${t.tenant.slug}`, name: 'B1', email: `tb-${t.tenant.slug}@test.local`, role: 'TEAM_LEADER', tenantId: t.tenant.id, teamId: team!.id })
-    tOutsider = { userId: `tb-${t.tenant.slug}`, tenantId: t.tenant.id, teamId: team!.id, role: 'TEAM_LEADER', name: 'B1', impersonatedBy: null, mustChangePassword: false }
+    tOutsider = await addUser(t, { role: 'TEAM_LEADER', team: team! })
 
     const [a, b] = [t.members[0]!, t.members[1]!]
     const open = (title: string, amountCents: number, ownerId: string | null) => newOpportunity(t.leader, t, deal({ title, amountCents, ownerId }))
@@ -519,9 +516,7 @@ describe('funnelFor', () => {
 
     const [team] = await db.insert(teams).values({ tenantId: t.tenant.id, name: 'B' }).returning()
     teamBId = team!.id
-    const leaderId = `fb-${t.tenant.slug}`
-    await db.insert(users).values({ id: leaderId, name: 'LB', email: `${leaderId}@test.local`, role: 'TEAM_LEADER', tenantId: t.tenant.id, teamId: teamBId })
-    teamBLeader = { userId: leaderId, tenantId: t.tenant.id, teamId: teamBId, role: 'TEAM_LEADER', name: 'LB', impersonatedBy: null, mustChangePassword: false }
+    teamBLeader = await addUser(t, { role: 'TEAM_LEADER', team: team! })
     await createOpportunityFor(tAdmin, (await newLead(t, { teamId: teamBId })).id, deal({ title: 'Outra equipe' }))
   })
   afterAll(() => t.cleanup())

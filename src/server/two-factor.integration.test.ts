@@ -5,7 +5,7 @@ import { db } from '#/db'
 import { auditEvents, sessions, tenants, twoFactors, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import type { AuthCtx } from './roles'
-import { makeTenant } from './test-fixtures'
+import { addLoginUser, makeTenant } from './test-fixtures'
 import { twoFactorStatusFor } from './two-factor.core'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
@@ -19,13 +19,7 @@ function jar(...pairs: Array<Array<string>>) {
   return new Headers({ cookie: [...byName.values()].join('; ') })
 }
 
-async function createUser(label: string) {
-  const email = `${label}-${f.tenant.slug}@test.local`
-  const { user } = await auth.api.createUser({
-    body: { name: label, email, password, role: 'MEMBER', data: { tenantId: f.tenant.id, teamId: f.team.id, mustChangePassword: false } },
-  })
-  return { id: user.id, email }
-}
+const createUser = (label: string) => addLoginUser(f, { label, password })
 
 async function currentTotp(userId: string) {
   const [row] = await db.select().from(twoFactors).where(eq(twoFactors.userId, userId))

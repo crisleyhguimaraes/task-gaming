@@ -3,16 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { users } from '#/db/schema'
 import { auth } from '#/lib/auth'
-import { makeTenant } from './test-fixtures'
+import { addLoginUser, makeTenant } from './test-fixtures'
 
 let mine: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
 const password = 'senha-forte-123'
 
-async function memberCookie(email: string) {
-  await auth.api.createUser({
-    body: { name: 'Membro', email, password, role: 'MEMBER', data: { tenantId: mine.tenant.id, teamId: mine.team.id, mustChangePassword: true } },
-  })
+async function memberCookie(label: string) {
+  const { email } = await addLoginUser(mine, { label, password, mustChangePassword: true })
   const { headers } = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true })
   return headers
     .getSetCookie()
@@ -42,7 +40,7 @@ afterAll(async () => {
 describe('/api/auth/update-user', () => {
   it('não deixa o próprio usuário trocar de tenant, equipe nem pular a troca de senha', async () => {
     const email = `escalada-${mine.tenant.slug}@test.local`
-    const cookie = await memberCookie(email)
+    const cookie = await memberCookie('escalada')
 
     const res = await updateUserHttp(cookie, { tenantId: other.tenant.id, teamId: other.team.id, mustChangePassword: false })
 
@@ -52,7 +50,7 @@ describe('/api/auth/update-user', () => {
   })
 
   it('continua aceitando campos comuns, como o nome', async () => {
-    const cookie = await memberCookie(`nome-${mine.tenant.slug}@test.local`)
+    const cookie = await memberCookie('nome')
 
     const res = await updateUserHttp(cookie, { name: 'Outro Nome' })
 

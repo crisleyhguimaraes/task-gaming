@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from './index'
 import { tasks, teams, tenants, users } from './schema'
 import { auth } from '#/lib/auth'
+import { addMember, teamRoleOf } from '#/server/team-members.core'
 
 const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, 'acme'))
 if (!tenant) throw new Error('Crie o tenant "acme" primeiro (/admin/tenants)')
@@ -15,6 +16,7 @@ const people = [
   { email: 'bruno@acme.com', name: 'Bruno Silva', role: 'MEMBER' },
   { email: 'carla@acme.com', name: 'Carla Souza', role: 'MEMBER' },
 ] as const
+const seeder = { userId: 'seed-demo', tenantId: tenant.id, name: 'seed-demo', impersonatedBy: null }
 const ids: Record<string, string> = {}
 for (const p of people) {
   const [u] = await db.select({ id: users.id }).from(users).where(eq(users.email, p.email))
@@ -26,6 +28,7 @@ for (const p of people) {
     body: { ...p, password: 'demo-1234', data: { tenantId: tenant.id, teamId: team!.id } },
   })
   ids[p.email] = created.user.id
+  await db.transaction((tx) => addMember(tx, seeder, { teamId: team!.id, userId: created.user.id, role: teamRoleOf(p.role) }))
   console.log('usuário:', p.email, '/ demo-1234')
 }
 

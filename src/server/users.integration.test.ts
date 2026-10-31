@@ -6,7 +6,7 @@ import { auth } from '#/lib/auth'
 import { createInvitationCore } from './invitations.core'
 import type { AuthCtx } from './roles'
 import { ForbiddenError } from './roles'
-import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
+import { addAdmin, addLoginUser, addTeam, addUser, makeTenant } from './test-fixtures'
 import { createUserFor, deactivateUserCore, listUsersFor, reactivateUserCore, updateUserCore } from './users.core'
 
 let mine: Awaited<ReturnType<typeof makeTenant>>
@@ -81,13 +81,7 @@ describe('desativar e reativar usuário', () => {
   const password = 'senha-forte-123'
   const deactivators = { 'user.deactivate': true }
 
-  async function newUser(label: string, tenant = mine) {
-    const email = `${label}-${tenant.tenant.slug}@test.local`
-    const { user } = await auth.api.createUser({
-      body: { name: label, email, password, role: 'MEMBER', data: { tenantId: tenant.tenant.id, teamId: tenant.team.id, mustChangePassword: false } },
-    })
-    return { id: user.id, email }
-  }
+  const newUser = (label: string, tenant = mine) => addLoginUser(tenant, { label, password })
 
   async function startWork(userId: string) {
     const [task] = await db
@@ -197,13 +191,22 @@ describe('updateUserCore com user.update delegado a líder', () => {
   const leader = (): AuthCtx => ({ ...mine.leader, capabilityOverrides: { 'user.update': true } })
 
   it('não mexe em admin nem promove ninguém a admin', async () => {
-    const member = await db.insert(users).values({ id: `m-${mine.tenant.slug}`, name: 'M', email: `m-${mine.tenant.slug}@test.local`, role: 'MEMBER', tenantId: mine.tenant.id, teamId: mine.team.id }).returning()
+    const member = await addUser(mine, { role: 'MEMBER', team: mine.team })
 
     await expect(updateUserCore(leader(), { userId: admin.userId, teamId: mine.team.id, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
-    await expect(updateUserCore(leader(), { userId: member[0]!.id, teamId: mine.team.id, role: 'TENANT_ADMIN' })).rejects.toThrow(ForbiddenError)
+    await expect(updateUserCore(leader(), { userId: member.userId, teamId: mine.team.id, role: 'TENANT_ADMIN' })).rejects.toThrow(ForbiddenError)
 
-    const [u] = await db.select().from(users).where(eq(users.id, member[0]!.id))
-    expect(u!.role).toBe('MEMBER')
+    expect((await userRowOf(member.userId)).role).toBe('MEMBER')
+  })
+
+  it('não leva membro da própria equipe para outra equipe nem para nenhuma', async () => {
+    const member = await addUser(mine, { role: 'MEMBER', team: mine.team })
+    const elsewhere = await addTeam(mine, 'Destino')
+
+    await expect(updateUserCore(leader(), { userId: member.userId, teamId: elsewhere.id, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+    await expect(updateUserCore(leader(), { userId: member.userId, teamId: null, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+
+    expect(await userRowOf(member.userId)).toMatchObject({ teamId: mine.team.id })
   })
 })
 

@@ -4,7 +4,7 @@ import { db } from '#/db'
 import { auditEvents, sessions, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { sendMail } from './mail'
-import { makeTenant } from './test-fixtures'
+import { addLoginUser, makeTenant } from './test-fixtures'
 
 vi.mock('./mail', () => ({ sendMail: vi.fn() }))
 
@@ -12,13 +12,7 @@ let f: Awaited<ReturnType<typeof makeTenant>>
 const password = 'senha-forte-123'
 const newPassword = 'outra-senha-456'
 
-async function createUser(label: string) {
-  const email = `${label}-${f.tenant.slug}@test.local`
-  const { user } = await auth.api.createUser({
-    body: { name: label, email, password, role: 'MEMBER', data: { tenantId: f.tenant.id, teamId: f.team.id, mustChangePassword: true } },
-  })
-  return { id: user.id, email }
-}
+const createUser = (label: string) => addLoginUser(f, { label, password, mustChangePassword: true })
 
 const requestReset = (email: string) => auth.api.requestPasswordReset({ body: { email, redirectTo: '/reset-password' } })
 

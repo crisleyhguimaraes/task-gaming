@@ -1,13 +1,21 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#/db'
-import { teams, tenants, users } from '#/db/schema'
+import { teamMembers, teams, tenants, users } from '#/db/schema'
+import { auth } from '#/lib/auth'
 import { insertDefaultStages } from './stages.core'
 import type { AuthCtx } from './roles'
+import { teamRoleOf } from './team-members.core'
 
 type Team = { id: string }
 
+async function linkToTeam(tenantId: string, team: Team | null, role: AuthCtx['role'], userId: string) {
+  if (!team || role === 'SUPER_ADMIN') return
+  await db.insert(teamMembers).values({ teamId: team.id, userId, tenantId, role: teamRoleOf(role) })
+}
+
 async function insertUser(tenantId: string, team: Team | null, role: AuthCtx['role'], id: string, name: string): Promise<AuthCtx> {
   await db.insert(users).values({ id, name, email: `${id}@test.local`, role, tenantId, teamId: team?.id ?? null })
+  await linkToTeam(tenantId, team, role, id)
   return { userId: id, tenantId, teamId: team?.id ?? null, role, name, impersonatedBy: null, mustChangePassword: false }
 }
 
@@ -24,6 +32,19 @@ export async function addTeam(f: { tenant: { id: string } }, name = 'Outra equip
 export function addUser(f: { tenant: { id: string } }, { role, team }: { role: AuthCtx['role']; team: Team | null }) {
   const id = `u-${Math.random().toString(36).slice(2, 10)}`
   return insertUser(f.tenant.id, team, role, id, `User ${id}`)
+}
+
+/** Usuário que entra de verdade pelo Better Auth, com o vínculo à equipe; o e-mail é `label-slug@test.local`. */
+export async function addLoginUser(
+  f: { tenant: { id: string; slug: string }; team: Team },
+  { label, password, role = 'MEMBER', mustChangePassword = false }: { label: string; password: string; role?: 'MEMBER' | 'SUPER_ADMIN'; mustChangePassword?: boolean },
+) {
+  const email = `${label}-${f.tenant.slug}@test.local`
+  const { user } = await auth.api.createUser({
+    body: { name: label, email, password, role, data: { tenantId: f.tenant.id, teamId: f.team.id, mustChangePassword } },
+  })
+  await linkToTeam(f.tenant.id, f.team, role, user.id)
+  return { id: user.id, email }
 }
 
 /** Tenant descartável com 1 time, 1 líder e N membros. Tudo cai em cascata no cleanup. */

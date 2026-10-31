@@ -6,7 +6,7 @@ import type { AuditAction } from '#/lib/audit'
 import type { AuthCtx } from './roles'
 import { canManage, fail, forbid } from './roles'
 
-type Actor = Pick<AuthCtx, 'userId' | 'tenantId' | 'name' | 'impersonatedBy'>
+export type Actor = Pick<AuthCtx, 'userId' | 'tenantId' | 'name' | 'impersonatedBy'>
 
 export type AuditEvent = {
   action: AuditAction

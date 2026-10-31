@@ -3,18 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
-import { makeTenant } from './test-fixtures'
+import { addLoginUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 const password = 'senha-forte-123'
 
-async function createUser(role: 'MEMBER' | 'SUPER_ADMIN', label: string) {
-  const email = `${label}-${f.tenant.slug}@test.local`
-  const { user } = await auth.api.createUser({
-    body: { name: label, email, password, role, data: { tenantId: f.tenant.id, teamId: f.team.id, mustChangePassword: false } },
-  })
-  return { id: user.id, email }
-}
+const createUser = (role: 'MEMBER' | 'SUPER_ADMIN', label: string) => addLoginUser(f, { label, password, role })
 
 const cookiePairs = (headers: Headers) => headers.getSetCookie().map((c) => c.split(';')[0]!)
 

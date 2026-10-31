@@ -6,11 +6,12 @@ import { auth } from '#/lib/auth'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
-import { fail, forbid, isAdmin, requireCan } from './roles'
+import { fail, requireCan } from './roles'
 import { assertWithinScope, inTenantTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
+import { addMember, removeMember, teamRoleOf } from './team-members.core'
 import { closeLogDuration } from './time'
-import type { Reader } from './tx'
+import type { Reader, Tx } from './tx'
 
 export type AssignableRole = Exclude<Role, 'SUPER_ADMIN'>
 
@@ -49,15 +50,21 @@ export async function releaseOpenWork(tx: Pick<typeof db, 'select' | 'update'>, 
     .where(and(eq(tasks.assignedToId, userId), inArray(tasks.status, ['pending', 'in_progress', 'paused'])))
 }
 
+async function leaveTeam(tx: Tx, me: AuthCtx, user: { id: string; teamId: string | null }) {
+  await releaseOpenWork(tx, user.id)
+  if (user.teamId) await removeMember(tx, me, { teamId: user.teamId, userId: user.id })
+}
+
 /** Muda equipe/papel. Tarefas abertas na equipe antiga voltam pro pool (regra de órfãs). */
 export async function updateUserCore(me: AuthCtx, data: { userId: string; teamId: string | null; role: AssignableRole }) {
   await db.transaction(async (tx) => {
     await assertTeamInTenant(tx, me.tenantId, data.teamId)
     const u = await findUserInScope(tx, me, data.userId)
     if (u.id === me.userId && u.role !== data.role) fail('Você não pode alterar o próprio papel')
-    if (!isAdmin(me) && data.role !== 'MEMBER') forbid()
-    if (u.teamId !== data.teamId) await releaseOpenWork(tx, u.id)
+    assertWithinScope(me, { role: data.role, teamId: data.teamId })
+    if (u.teamId !== data.teamId) await leaveTeam(tx, me, u)
     const [updated] = await tx.update(users).set({ teamId: data.teamId, role: data.role }).where(eq(users.id, u.id)).returning()
+    if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: u.id, role: teamRoleOf(data.role) })
     const changes = diffFields(u, updated!, ['role', 'teamId'])
     if (Object.keys(changes).length) await recordAudit(tx, me, { action: 'user.updated', entityType: 'user', entityId: u.id, changes })
   })
@@ -98,6 +105,10 @@ export async function createUserFor(me: AuthCtx, data: { name: string; email: st
       data: { tenantId: me.tenantId, teamId: data.teamId ?? undefined, mustChangePassword: true },
     },
   })
-  await recordAudit(db, me, { action: 'user.created', entityType: 'user', entityId: user.id, meta: { email: data.email, role: data.role, teamId: data.teamId } })
+  // NOTE: o Better Auth cria o usuário fora da transação; se ela falhar sobra users.team_id sem vínculo, e addMember refaz o vínculo na próxima edição.
+  await db.transaction(async (tx) => {
+    if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: user.id, role: teamRoleOf(data.role) })
+    await recordAudit(tx, me, { action: 'user.created', entityType: 'user', entityId: user.id, meta: { email: data.email, role: data.role, teamId: data.teamId } })
+  })
   return user
 }

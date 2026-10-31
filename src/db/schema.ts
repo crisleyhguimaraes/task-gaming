@@ -5,13 +5,16 @@ import {
   check,
   date,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   varchar,
@@ -24,6 +27,9 @@ export const roleEnum = pgEnum('role', [
   'MEMBER',
 ])
 export type Role = (typeof roleEnum.enumValues)[number]
+
+export const teamRoleEnum = pgEnum('team_role', ['LEADER', 'MEMBER'])
+export type TeamRole = (typeof teamRoleEnum.enumValues)[number]
 
 const ts = (name: string) => timestamp(name, { withTimezone: true })
 
@@ -49,7 +55,7 @@ export const teams = pgTable(
     name: varchar('name', { length: 100 }).notNull(),
     createdAt: ts('created_at').defaultNow().notNull(),
   },
-  (t) => [index('teams_tenant_idx').on(t.tenantId)],
+  (t) => [index('teams_tenant_idx').on(t.tenantId), unique('teams_id_tenant_unique').on(t.id, t.tenantId)],
 )
 
 // Better Auth `user` (+ plugin admin) + nossos campos de tenant.
@@ -76,7 +82,27 @@ export const users = pgTable(
     mustChangePassword: boolean('must_change_password').notNull().default(false),
     twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
   },
-  (t) => [index('users_tenant_team_idx').on(t.tenantId, t.teamId)],
+  (t) => [index('users_tenant_team_idx').on(t.tenantId, t.teamId), unique('users_id_tenant_unique').on(t.id, t.tenantId)],
+)
+
+// As FKs compostas tornam impossível, no banco, alguém de outro tenant numa equipe.
+// CASCADE também na equipe: com NO ACTION, apagar o tenant falha, porque a cascata apaga as equipes antes dos usuários e a checagem roda com os vínculos ainda de pé.
+export const teamMembers = pgTable(
+  'team_members',
+  {
+    teamId: uuid('team_id').notNull(),
+    userId: text('user_id').notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    role: teamRoleEnum('role').notNull().default('MEMBER'),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.teamId, t.userId] }),
+    foreignKey({ name: 'team_members_team_tenant_fk', columns: [t.teamId, t.tenantId], foreignColumns: [teams.id, teams.tenantId] }).onDelete('cascade'),
+    foreignKey({ name: 'team_members_user_tenant_fk', columns: [t.userId, t.tenantId], foreignColumns: [users.id, users.tenantId] }).onDelete('cascade'),
+    index('team_members_user_idx').on(t.userId),
+    index('team_members_tenant_team_role_idx').on(t.tenantId, t.teamId, t.role),
+  ],
 )
 
 export const sessions = pgTable(

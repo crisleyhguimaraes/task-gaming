@@ -1,10 +1,10 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, tasks, teams, users } from '#/db/schema'
+import { auditEvents, tasks, teams } from '#/db/schema'
 import { exportAuditCsvFor, exportTasksCsvFor } from './exports.core'
 import type { AuthCtx } from './roles'
-import { addAdmin, makeTenant } from './test-fixtures'
+import { addAdmin, addUser, makeTenant } from './test-fixtures'
 
 const BOM = '﻿'
 
@@ -35,9 +35,7 @@ beforeAll(async () => {
   other = await makeTenant(1)
   admin = await addAdmin(f)
   const [team2] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Outra' }).returning()
-  const id = `rival-${f.tenant.slug}`
-  await db.insert(users).values({ id, name: 'Rival', email: `${id}@test.local`, role: 'TEAM_LEADER', tenantId: f.tenant.id, teamId: team2!.id })
-  rival = { ...f.leader, userId: id, teamId: team2!.id, name: 'Rival' }
+  rival = await addUser(f, { role: 'TEAM_LEADER', team: team2! })
   await newTask('Da equipe principal', { priority: 'high', assignedToId: f.members[0]!.userId })
   await newTask('Da outra equipe', { teamId: team2!.id })
   await newTask('=HYPERLINK("http://evil","clique")')
