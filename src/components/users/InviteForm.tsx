@@ -1,8 +1,9 @@
 import { Mail } from 'lucide-react'
 import type { FormEvent } from 'react'
+import type { Act } from '#/components/useAttempt'
 import type { AuthCtx } from '#/server/roles'
 import { createInvitation } from '#/server/invitations'
-import type { Act, Team } from './model'
+import type { Team } from './model'
 import { readPlacement } from './model'
 import { PlacementFields } from './PlacementFields'
 

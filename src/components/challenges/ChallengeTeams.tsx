@@ -1,6 +1,6 @@
-type Team = { id: string; name: string }
+import type { TeamRef } from '#/components/teams/model'
 
-type Props = { ownerName: string; tenantWide: boolean; sharedTeams: ReadonlyArray<Team> }
+type Props = { ownerName: string; tenantWide: boolean; sharedTeams: ReadonlyArray<TeamRef> }
 
 const chip = 'max-w-full truncate rounded-full border border-neutral-700/60 bg-neutral-800/60 px-2.5 py-0.5 text-xs font-medium'
 

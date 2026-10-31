@@ -1,8 +1,9 @@
 import { Plus } from 'lucide-react'
 import type { FormEvent } from 'react'
+import type { Act } from '#/components/useAttempt'
 import { teamRoles } from '#/lib/access'
 import { addTeamMember } from '#/server/team-members'
-import type { Act, Team, UserRow } from './model'
+import type { Team, UserRow } from './model'
 import { teamRoleLabel, teamRoleOf } from './model'
 
 export function AddToTeam({ user, teams, act }: { user: UserRow; teams: ReadonlyArray<Team>; act: Act }) {

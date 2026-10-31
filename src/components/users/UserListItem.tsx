@@ -1,11 +1,12 @@
 import { UserCheck, UserX } from 'lucide-react'
+import type { Act } from '#/components/useAttempt'
 import { roleLabel } from '#/lib/format'
 import type { AuthCtx } from '#/server/roles'
 import { can, isAdmin } from '#/server/roles'
 import { removeTeamMember, setTeamMemberRole } from '#/server/team-members'
 import { deactivateUser, reactivateUser, updateUser } from '#/server/users'
 import { AddToTeam } from './AddToTeam'
-import type { Act, Membership, Team, UserRow } from './model'
+import type { Membership, Team, UserRow } from './model'
 import { canDeactivate, canRemoveFromTeam, tenantRoleOf } from './model'
 import { TeamChip } from './TeamChip'
 

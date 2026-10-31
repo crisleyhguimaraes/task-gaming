@@ -1,12 +1,14 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
-import { TeamPicker } from '#/components/challenges/TeamPicker'
+import { shareableTeams } from '#/components/challenges/model'
+import { TeamCheckboxes } from '#/components/teams/TeamCheckboxes'
+import { messageOf } from '#/components/useAttempt'
 import { appRoute } from '#/lib/app-route'
 import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
 import { createChallenge } from '#/server/challenges'
 import { getMyTeamOptions } from '#/server/leads'
-import { can, canManageWith, defaultTeamId, isAdmin } from '#/server/roles'
+import { can, defaultTeamId, isAdmin } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/challenges/new')({
@@ -23,11 +25,10 @@ function NewChallenge() {
   const router = useRouter()
   const ownerOptions = myTeams.filter((t) => can(me, 'challenge.write', t.id))
   const [ownerId, setOwnerId] = React.useState(defaultTeamId(me, ownerOptions))
-  const [pickedIds, setPickedIds] = React.useState<Array<string>>([])
   const [tenantWide, setTenantWide] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const shareable = managedTeams.filter((t) => t.id !== ownerId && canManageWith(me, 'challenge.share', t.id))
+  const shareable = shareableTeams(me, managedTeams, ownerId)
   const canShareTenantWide = isAdmin(me)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -43,14 +44,14 @@ function NewChallenge() {
           estimatedMinutes: Number(f.get('estimatedMinutes')),
           scoredAttemptsPerDay: Number(f.get('scoredAttemptsPerDay')),
           teamId: ownerId,
-          teamIds: pickedIds.filter((id) => shareable.some((t) => t.id === id)),
+          teamIds: f.getAll('teamIds').map(String),
           tenantWide: canShareTenantWide && tenantWide,
         },
       })
       await router.invalidate()
       router.navigate({ to: '/challenges/$challengeId', params: { challengeId: c.id } })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao criar')
+      setError(messageOf(err, 'Erro ao criar'))
       setBusy(false)
     }
   }
@@ -78,7 +79,7 @@ function NewChallenge() {
         </div>
         {(shareable.length > 0 || canShareTenantWide) && (
           <div className="space-y-3">
-            {shareable.length > 0 && <TeamPicker legend="Compartilhar com" teams={shareable} picked={pickedIds} onChange={setPickedIds} />}
+            {shareable.length > 0 && <TeamCheckboxes legend="Compartilhar com" teams={shareable} selected={[]} />}
             {canShareTenantWide && (
               <label className="flex items-center gap-2 text-sm text-neutral-200">
                 <input type="checkbox" checked={tenantWide} onChange={(e) => setTenantWide(e.target.checked)} className="h-4 w-4 p-0 accent-xp-400" /> Todo o tenant

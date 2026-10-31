@@ -3,11 +3,12 @@ import { Archive, ArrowLeft, Flame, Trophy } from 'lucide-react'
 import { AttemptButton } from '#/components/challenges/AttemptButton'
 import { ChallengeRankings } from '#/components/challenges/ChallengeRankings'
 import { ChallengeTeams } from '#/components/challenges/ChallengeTeams'
+import { shareableTeams } from '#/components/challenges/model'
 import { ShareChallenge } from '#/components/challenges/ShareChallenge'
 import { appRoute } from '#/lib/app-route'
 import { fmtClock } from '#/lib/format'
 import { archiveChallenge, getChallenge } from '#/server/challenges'
-import { canManageWith, isAdmin } from '#/server/roles'
+import { isAdmin } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/challenges/$challengeId')({
@@ -24,7 +25,7 @@ function Challenge() {
   const { me } = appRoute.useRouteContext()
   const router = useRouter()
   const record = c.ranking[0]
-  const shareable = managedTeams.filter((t) => t.id !== c.teamId && canManageWith(me, 'challenge.share', t.id))
+  const shareable = shareableTeams(me, managedTeams, c.teamId)
 
   async function archive() {
     if (!confirm('Arquivar este desafio? As tentativas ficam no histórico.')) return

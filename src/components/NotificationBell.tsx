@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { Bell, CheckCheck } from 'lucide-react'
 import * as React from 'react'
+import { messageOf } from '#/components/useAttempt'
 import { notificationMessage } from '#/lib/notifications'
 import { getNotifications, markAllNotificationsRead, markNotificationRead } from '#/server/notifications'
 
@@ -25,7 +26,7 @@ export function NotificationBell() {
       setInbox(await getNotifications())
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
+      setError(messageOf(e))
     }
   }, [])
 

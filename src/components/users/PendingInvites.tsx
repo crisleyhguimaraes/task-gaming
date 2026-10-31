@@ -1,8 +1,8 @@
 import { RotateCw, X } from 'lucide-react'
+import type { Act } from '#/components/useAttempt'
 import { roleLabel } from '#/lib/format'
 import type { listInvitations } from '#/server/invitations'
 import { cancelInvitation, resendInvitation } from '#/server/invitations'
-import type { Act } from './model'
 import { teamRoleLabel } from './model'
 
 type Invite = Awaited<ReturnType<typeof listInvitations>>[number]

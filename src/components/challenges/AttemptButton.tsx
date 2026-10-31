@@ -2,16 +2,16 @@ import { useRouter } from '@tanstack/react-router'
 import { Play } from 'lucide-react'
 import * as React from 'react'
 import { Modal } from '#/components/Modal'
+import type { TeamRef } from '#/components/teams/model'
+import { messageOf } from '#/components/useAttempt'
 import { cannotCompeteReason } from '#/lib/challenge-sharing'
 import { attemptChallenge } from '#/server/challenges'
 import type { AuthCtx } from '#/server/roles'
 
-type Team = { id: string; name: string }
-
 type Props = {
   challengeId: string
   openAttempt: { id: string } | null
-  competingTeams: ReadonlyArray<Team>
+  competingTeams: ReadonlyArray<TeamRef>
   me: Pick<AuthCtx, 'role' | 'memberships'>
 }
 
@@ -31,7 +31,7 @@ export function AttemptButton({ challengeId, openAttempt, competingTeams, me }: 
       await router.invalidate()
       router.navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
+      setError(messageOf(e))
       setBusy(false)
     }
   }
@@ -50,7 +50,7 @@ export function AttemptButton({ challengeId, openAttempt, competingTeams, me }: 
   )
 }
 
-function ChooseTeam({ teams, onChoose, onClose }: { teams: ReadonlyArray<Team>; onChoose: (teamId: string) => void; onClose: () => void }) {
+function ChooseTeam({ teams, onChoose, onClose }: { teams: ReadonlyArray<TeamRef>; onChoose: (teamId: string) => void; onClose: () => void }) {
   const [teamId, setTeamId] = React.useState('')
   return (
     <form

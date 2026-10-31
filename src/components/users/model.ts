@@ -1,5 +1,5 @@
 import type { AssignableRole, TeamRole } from '#/lib/access'
-import type { AuthCtx } from '#/server/roles'
+import type { AuthCtx, Capability } from '#/server/roles'
 import { can, canManage, isAdmin } from '#/server/roles'
 import type { listUsers } from '#/server/users'
 
@@ -7,7 +7,6 @@ type UsersData = Awaited<ReturnType<typeof listUsers>>
 export type UserRow = UsersData['users'][number]
 export type Team = UsersData['teams'][number]
 export type Membership = UserRow['memberships'][number]
-export type Act = (fn: () => Promise<unknown>) => Promise<void>
 
 export const teamRoleLabel: Record<TeamRole, string> = { LEADER: 'Líder', MEMBER: 'Membro' }
 
@@ -19,7 +18,7 @@ export function readPlacement(form: FormData) {
   return { teamId, role: tenantRoleOf(form.get('role')), teamRole: teamId ? teamRoleOf(form.get('teamRole')) : 'MEMBER' } as const
 }
 
-export const teamsWhereCan = (me: AuthCtx, teams: ReadonlyArray<Team>, capability: 'user.create' | 'invitation.manage') =>
+export const teamsWhereCan = (me: AuthCtx, teams: ReadonlyArray<Team>, capability: Capability) =>
   teams.filter((t) => can(me, capability, t.id))
 
 /** Líder só tira MEMBER; o vínculo de líder é do admin. */

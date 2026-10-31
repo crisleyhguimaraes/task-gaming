@@ -1,9 +1,9 @@
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import * as React from 'react'
-import { TeamChips } from '../teams/TeamChips'
+import { TeamChips } from '#/components/teams/TeamChips'
+import { useAttempt } from '#/components/useAttempt'
 import type { CatalogItem } from './model'
-import { useAttempt } from './model'
 
 type Props<T extends CatalogItem> = {
   noun: string

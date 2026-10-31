@@ -1,6 +1,6 @@
-import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { Plus, Trash2 } from 'lucide-react'
-import * as React from 'react'
+import { useAct } from '#/components/useAttempt'
 import { createTeam, deleteTeam, listTeams } from '#/server/teams'
 
 export const Route = createFileRoute('/_app/settings/teams')({
@@ -10,18 +10,7 @@ export const Route = createFileRoute('/_app/settings/teams')({
 
 function Teams() {
   const list = Route.useLoaderData()
-  const router = useRouter()
-  const [error, setError] = React.useState<string | null>(null)
-
-  async function act(fn: () => Promise<unknown>) {
-    try {
-      await fn()
-      setError(null)
-      router.invalidate()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
-    }
-  }
+  const { error, act } = useAct()
 
   return (
     <div className="space-y-5">

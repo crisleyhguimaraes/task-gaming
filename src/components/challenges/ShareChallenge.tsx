@@ -2,15 +2,15 @@ import { useRouter } from '@tanstack/react-router'
 import { Share2 } from 'lucide-react'
 import * as React from 'react'
 import { Modal } from '#/components/Modal'
+import type { TeamRef } from '#/components/teams/model'
+import { TeamCheckboxes } from '#/components/teams/TeamCheckboxes'
+import { messageOf } from '#/components/useAttempt'
 import { nextSharedTeamIds } from '#/lib/challenge-sharing'
 import { setChallengeTeams } from '#/server/challenges'
-import { TeamPicker } from './TeamPicker'
-
-type Team = { id: string; name: string }
 
 type Props = {
-  challenge: { id: string; tenantWide: boolean; sharedTeams: ReadonlyArray<Team> }
-  manageable: ReadonlyArray<Team>
+  challenge: { id: string; tenantWide: boolean; sharedTeams: ReadonlyArray<TeamRef> }
+  manageable: ReadonlyArray<TeamRef>
   canShareTenantWide: boolean
 }
 
@@ -33,20 +33,20 @@ function ShareForm({ challenge, manageable, canShareTenantWide, onClose }: Props
   const manageableIds = manageable.map((t) => t.id)
   const currentIds = challenge.sharedTeams.map((t) => t.id)
   const foreign = challenge.sharedTeams.filter((t) => !manageableIds.includes(t.id))
-  const [picked, setPicked] = React.useState(currentIds.filter((id) => manageableIds.includes(id)))
   const [tenantWide, setTenantWide] = React.useState(challenge.tenantWide)
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    const picked = new FormData(e.currentTarget).getAll('teamIds').map(String)
     setBusy(true)
     try {
       await setChallengeTeams({ data: { challengeId: challenge.id, teamIds: nextSharedTeamIds(currentIds, manageableIds, picked), tenantWide } })
       onClose()
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao compartilhar')
+      setError(messageOf(err, 'Erro ao compartilhar'))
     } finally {
       setBusy(false)
     }
@@ -56,7 +56,7 @@ function ShareForm({ challenge, manageable, canShareTenantWide, onClose }: Props
     <form onSubmit={onSubmit} className="space-y-4 rounded-3xl border border-neutral-800 bg-neutral-950 p-6">
       <h2 className="text-lg font-bold">Compartilhar desafio</h2>
       <p className="text-sm text-neutral-400">As equipes marcadas passam a competir. Os pontos continuam sendo validados pela equipe dona.</p>
-      {manageable.length > 0 && <TeamPicker legend="Equipes que competem" teams={manageable} picked={picked} onChange={setPicked} />}
+      {manageable.length > 0 && <TeamCheckboxes legend="Equipes que competem" teams={manageable} selected={challenge.sharedTeams} />}
       {foreign.length > 0 && (
         <p className="text-xs text-neutral-500">Também competem, de outros líderes: {foreign.map((t) => t.name).join(', ')}. Só o administrador altera essas.</p>
       )}

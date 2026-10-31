@@ -2,6 +2,7 @@ import { Link, useRouter } from '@tanstack/react-router'
 import { AlertTriangle } from 'lucide-react'
 import * as React from 'react'
 import { Modal } from '#/components/Modal'
+import { messageOf } from '#/components/useAttempt'
 import { createLead } from '#/server/leads'
 import type { getMyTeamOptions } from '#/server/leads'
 import type { DuplicateCandidate } from '#/server/leads.core'
@@ -44,7 +45,7 @@ function NewLeadForm({ onClose, options, me }: Omit<Props, 'open'>) {
       await router.invalidate()
       router.navigate({ to: '/leads/$leadId', params: { leadId: result.lead.id } })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao criar')
+      setError(messageOf(e, 'Erro ao criar'))
     } finally {
       setBusy(false)
     }

@@ -3,6 +3,7 @@ import { Download } from 'lucide-react'
 import * as React from 'react'
 import { z } from 'zod'
 import { AuditEntry, entityLabels } from '#/components/AuditEntry'
+import { messageOf } from '#/components/useAttempt'
 import { auditActionLabels, auditActions } from '#/lib/audit'
 import { downloadCsv } from '#/lib/download-csv'
 import { getAuditActors, listAuditPage } from '#/server/audit-view'
@@ -62,7 +63,7 @@ function Audit() {
       downloadCsv(await exportAuditCsv({ data: toFilters(search) }))
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
+      setError(messageOf(e))
     }
   }
 
@@ -138,7 +139,7 @@ function AuditList({ first, filters }: { first: AuditPage; filters: ReturnType<t
       setNextCursor(more.nextCursor)
       setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
+      setError(messageOf(e))
     }
   }
 

@@ -1,9 +1,9 @@
 import { useRouter } from '@tanstack/react-router'
 import { Save } from 'lucide-react'
 import * as React from 'react'
+import { useAttempt } from '#/components/useAttempt'
 import type { getTenantSettings } from '#/server/tenant-settings'
 import { updateTenantSettings } from '#/server/tenant-settings'
-import { useAttempt } from './model'
 
 type General = Awaited<ReturnType<typeof getTenantSettings>>
 

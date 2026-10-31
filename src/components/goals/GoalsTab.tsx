@@ -1,11 +1,13 @@
 import { useRouter } from '@tanstack/react-router'
+import type { TeamRef } from '#/components/teams/model'
+import { TeamCheckboxes } from '#/components/teams/TeamCheckboxes'
+import { useAttempt } from '#/components/useAttempt'
 import { MAX_GOAL_POINTS, MIN_GOAL_POINTS, BUSINESS_DAYS, validateGoal } from '#/lib/goals'
 import { createGoal, deleteGoal, setGoalTeams, updateGoal } from '#/server/goals'
 import type { listGoals } from '#/server/goals'
 import * as React from 'react'
 import { CatalogPanel } from './CatalogPanel'
-import { allTeams, otherOwners, useAttempt } from './model'
-import { TeamCheckboxes } from './TeamCheckboxes'
+import { allTeams, otherOwners, teamsHint } from './model'
 import { WeekdayChips, WeekdayPicker } from './WeekdayPicker'
 
 type GoalItem = Awaited<ReturnType<typeof listGoals>>[number]
@@ -45,7 +47,7 @@ export function GoalsTab({ goals }: { goals: ReadonlyArray<GoalItem> }) {
 
 type GoalFormProps = {
   goal: GoalItem | null
-  teams: ReadonlyArray<{ id: string; name: string }>
+  teams: ReadonlyArray<TeamRef>
   owners: ReadonlyMap<string, string>
   onSave: (input: { name: string; targetPoints: number; activeDays: Array<number> }, teamIds: Array<string>) => Promise<void>
   onClose: () => void
@@ -85,7 +87,7 @@ function GoalForm({ goal, teams, owners, onSave, onClose }: GoalFormProps) {
       {goal?.isDefault ? (
         <p className="text-xs text-neutral-500">A meta padrão vale para as equipes sem meta própria. Para tirar uma equipe dela, vincule a equipe a outra meta.</p>
       ) : (
-        <TeamCheckboxes teams={teams} selected={goal?.teams ?? []} otherOwners={owners} noun="meta" />
+        <TeamCheckboxes legend="Equipes que usam" hint={teamsHint('meta')} teams={teams} selected={goal?.teams ?? []} otherOwners={owners} />
       )}
       {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
       <div className="flex gap-2">

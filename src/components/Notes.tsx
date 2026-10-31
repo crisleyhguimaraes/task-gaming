@@ -1,6 +1,7 @@
 import { useRouter } from '@tanstack/react-router'
 import { Send } from 'lucide-react'
 import * as React from 'react'
+import { messageOf } from '#/components/useAttempt'
 import { addNote } from '#/server/notes'
 import type { NoteTarget } from '#/server/notes.core'
 
@@ -17,7 +18,7 @@ export function Notes({ target, notes }: { target: NoteTarget; notes: Array<Note
       setError(null)
       router.invalidate()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
+      setError(messageOf(e))
     }
   }
 

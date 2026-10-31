@@ -1,9 +1,9 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { Mail, UserPlus } from 'lucide-react'
 import * as React from 'react'
+import { useAct } from '#/components/useAttempt'
 import { CreateUserForm } from '#/components/users/CreateUserForm'
 import { InviteForm } from '#/components/users/InviteForm'
-import type { Act } from '#/components/users/model'
 import { PendingInvites } from '#/components/users/PendingInvites'
 import { UserListItem } from '#/components/users/UserListItem'
 import { appRoute } from '#/lib/app-route'
@@ -24,19 +24,8 @@ type Mode = 'invite' | 'create'
 function Users() {
   const { me } = appRoute.useRouteContext()
   const { users, teams, invites } = Route.useLoaderData()
-  const router = useRouter()
   const [mode, setMode] = React.useState<Mode>('invite')
-  const [error, setError] = React.useState<string | null>(null)
-
-  const act: Act = async (fn) => {
-    try {
-      await fn()
-      setError(null)
-      router.invalidate()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
-    }
-  }
+  const { error, act } = useAct()
 
   const modes = [
     { id: 'invite', label: 'Convidar por e-mail', icon: Mail, allowed: can(me, 'invitation.manage') },

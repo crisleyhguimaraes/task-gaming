@@ -55,4 +55,7 @@ const FIELD_KEYS = SCORING_GROUPS.flatMap((group) => group.fields.map((field) =>
 
 export const valuesOf = (rules: ScoringRules) => Object.fromEntries(FIELD_KEYS.map((key) => [key, String(rules[key])])) as RuleValues
 
-export const rulesOf = (values: RuleValues) => Object.fromEntries(FIELD_KEYS.map((key) => [key, Number(values[key])])) as ScoringRules
+// Campo em branco vira NaN: `Number('')` é 0, e 0 é válido em vários campos, então passaria como se tivesse sido digitado.
+const numberOf = (text: string) => (text.trim() === '' ? NaN : Number(text))
+
+export const rulesOf = (values: RuleValues) => Object.fromEntries(FIELD_KEYS.map((key) => [key, numberOf(values[key])])) as ScoringRules

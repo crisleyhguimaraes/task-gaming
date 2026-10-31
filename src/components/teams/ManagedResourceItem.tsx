@@ -1,5 +1,6 @@
 import { Archive, ArchiveRestore } from 'lucide-react'
 import type { FormEvent, ReactNode } from 'react'
+import type { Act } from '#/components/useAttempt'
 import { TeamChips } from './TeamChips'
 
 type Props = {
@@ -11,7 +12,7 @@ type Props = {
   canManage: boolean
   canArchive?: boolean
   extra?: ReactNode
-  act: (fn: () => Promise<unknown>) => Promise<void>
+  act: Act
   onRename: (name: string) => Promise<unknown>
   onArchive: () => Promise<unknown>
   onRestore: () => Promise<unknown>

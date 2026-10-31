@@ -1,15 +1,17 @@
 import { useRouter } from '@tanstack/react-router'
 import * as React from 'react'
+import type { TeamRef } from '#/components/teams/model'
+import { TeamCheckboxes } from '#/components/teams/TeamCheckboxes'
+import { useAttempt } from '#/components/useAttempt'
 import type { listScoringRules } from '#/server/scoring-rules'
 import { createScoringRule, deleteScoringRule, setScoringRuleTeams, updateScoringRule } from '#/server/scoring-rules'
 import { FACTORY_RULES, validateRules } from '#/server/scoring'
 import type { ScoringRules } from '#/server/scoring'
 import { CatalogPanel } from './CatalogPanel'
-import { allTeams, otherOwners, useAttempt } from './model'
+import { allTeams, otherOwners, teamsHint } from './model'
 import { ScoringExample } from './ScoringExample'
 import { SCORING_GROUPS, rulesOf, valuesOf } from './scoring-fields'
 import type { RuleValues } from './scoring-fields'
-import { TeamCheckboxes } from './TeamCheckboxes'
 
 type RuleItem = Awaited<ReturnType<typeof listScoringRules>>[number]
 
@@ -51,7 +53,7 @@ function RuleSummary({ rule }: { rule: RuleItem }) {
 
 type FormProps = {
   rule: RuleItem | null
-  teams: ReadonlyArray<{ id: string; name: string }>
+  teams: ReadonlyArray<TeamRef>
   owners: ReadonlyMap<string, string>
   onSave: (input: { name: string; rules: ScoringRules }, teamIds: Array<string>) => Promise<void>
   onClose: () => void
@@ -109,7 +111,7 @@ function ScoringForm({ rule, teams, owners, onSave, onClose }: FormProps) {
       {rule?.isDefault ? (
         <p className="text-xs text-neutral-500">A pontuação padrão vale para as equipes sem pontuação própria. Para tirar uma equipe dela, vincule a equipe a outra pontuação.</p>
       ) : (
-        <TeamCheckboxes teams={teams} selected={rule?.teams ?? []} otherOwners={owners} noun="pontuação" />
+        <TeamCheckboxes legend="Equipes que usam" hint={teamsHint('pontuação')} teams={teams} selected={rule?.teams ?? []} otherOwners={owners} />
       )}
       {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
       <div className="flex gap-2">

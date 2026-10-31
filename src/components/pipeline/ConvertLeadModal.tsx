@@ -1,5 +1,6 @@
 import { Briefcase } from 'lucide-react'
 import * as React from 'react'
+import { messageOf } from '#/components/useAttempt'
 import { toCents } from '#/lib/pipeline'
 import { convertLead } from '#/server/pipeline'
 import { getTeamPipelines } from '#/server/pipelines'
@@ -20,7 +21,7 @@ export function ConvertLeadModal({ lead, onDone }: Props) {
     let current = true
     getTeamPipelines({ data: { teamId: lead.teamId } })
       .then((options) => current && setPipelines(options))
-      .catch((e) => current && setError(e instanceof Error ? e.message : 'Erro ao carregar os pipelines'))
+      .catch((e) => current && setError(messageOf(e, 'Erro ao carregar os pipelines')))
     return () => {
       current = false
     }
@@ -43,7 +44,7 @@ export function ConvertLeadModal({ lead, onDone }: Props) {
       setError(null)
       onDone(id)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao converter')
+      setError(messageOf(e, 'Erro ao converter'))
     } finally {
       setBusy(false)
     }

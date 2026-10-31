@@ -1,5 +1,5 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
-import * as React from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { useAct } from '#/components/useAttempt'
 import type { TeamRole } from '#/lib/access'
 import { teamRoles } from '#/lib/access'
 import { getCapabilityOverrides, setCapability } from '#/server/permissions'
@@ -44,18 +44,8 @@ const tenantCapabilities = capabilities.filter((c) => c !== 'tenant.manage')
 
 function Permissions() {
   const overrides = Route.useLoaderData()
-  const router = useRouter()
-  const [error, setError] = React.useState<string | null>(null)
-
-  async function toggle(role: TeamRole, capability: Capability, allowed: boolean) {
-    try {
-      await setCapability({ data: { role, capability, allowed } })
-      setError(null)
-      router.invalidate()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro')
-    }
-  }
+  const { error, act } = useAct()
+  const toggle = (role: TeamRole, capability: Capability, allowed: boolean) => act(() => setCapability({ data: { role, capability, allowed } }))
 
   return (
     <div className="space-y-5">
