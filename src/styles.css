@@ -10,7 +10,7 @@
   --color-neutral-200: #e0e1ec;
   --color-neutral-300: #c6c8dc;
   --color-neutral-400: #a3a6c2;
-  --color-neutral-500: #7b7fa4;
+  --color-neutral-500: #9094b8;
   --color-neutral-600: #565a84;
   --color-neutral-700: #3d4066;
   --color-neutral-800: #2f3152;
@@ -25,6 +25,13 @@
   --color-xp-800: #145f37;
   --color-xp-900: #0f4a2c;
   --color-xp-950: #08301c;
+
+  /* Acento por papel (não por rampa): o mesmo nome serve nos dois temas. */
+  --color-brand: #4c5bdc;
+  --color-brand-hover: #3f4dc9;
+  --color-brand-soft: #262b5c;
+  --color-brand-ink: #aab4ff;
+  --color-brand-ring: #7c8bf5;
 }
 
 /* Modo claro: o ramp `neutral` inverte (950 = fundo claro, 100 = texto escuro); verde e avisos ganham
@@ -35,7 +42,7 @@ html[data-theme='light'] {
   --color-neutral-200: #2a2c44;
   --color-neutral-300: #3d3f5c;
   --color-neutral-400: #5c5f7c;
-  --color-neutral-500: #7b7f9c;
+  --color-neutral-500: #666a89;
   --color-neutral-600: #a6a9c0;
   --color-neutral-700: #d3d5e2;
   --color-neutral-800: #e6e8f1;
@@ -43,9 +50,9 @@ html[data-theme='light'] {
   --color-neutral-950: #f2f3f9;
 
   --color-xp-300: #3ee27a;
-  --color-xp-400: #1c9e54;
-  --color-xp-500: #178a49;
-  --color-xp-600: #12703b;
+  --color-xp-400: #15803d;
+  --color-xp-500: #12703b;
+  --color-xp-600: #0f5f33;
   --color-xp-800: #bdeed0;
   --color-xp-900: #d7f5e3;
   --color-xp-950: #e9faf0;
@@ -56,9 +63,13 @@ html[data-theme='light'] {
   --color-orange-300: #b45309;
   --color-orange-950: #fff1e6;
   --color-rose-300: #be123c;
-  --color-rose-400: #e11d48;
+  --color-rose-400: #be123c;
   --color-rose-900: #fecdd3;
   --color-rose-950: #fff1f2;
+
+  --color-brand-soft: #eef0fe;
+  --color-brand-ink: #3f4dc9;
+  --color-brand-ring: #5b6cf2;
 }
 
 @layer base {
@@ -89,13 +100,13 @@ html[data-theme='light'] {
   input,
   select,
   textarea {
-    @apply w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus:border-xp-500;
+    @apply w-full rounded-xl border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus:border-brand-ring;
   }
   label {
     @apply block text-xs font-medium text-neutral-400;
   }
   :focus-visible {
-    outline: 2px solid var(--color-xp-400);
+    outline: 2px solid var(--color-brand-ring);
     outline-offset: 2px;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -119,10 +130,7 @@ html[data-theme='light'] {
 
 @layer components {
   .btn-primary {
-    @apply btn bg-xp-400 text-[#0b1a10] hover:bg-xp-300;
-  }
-  html[data-theme='light'] .btn-primary {
-    @apply text-white hover:bg-xp-500;
+    @apply btn bg-brand text-white hover:bg-brand-hover;
   }
   .btn-ghost {
     @apply btn border border-neutral-700/60 bg-neutral-800/60 text-neutral-100 hover:bg-neutral-800;
@@ -131,16 +139,16 @@ html[data-theme='light'] {
     @apply btn bg-neutral-100 text-neutral-950 hover:bg-neutral-300;
   }
   .card {
-    @apply rounded-2xl bg-neutral-900 p-4;
+    @apply rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-[0_1px_2px_rgb(20_22_50/0.04)];
   }
   .tile-green {
     @apply tile bg-gradient-to-br from-xp-400 to-teal-500 shadow-xp-500/20;
   }
   .tile-cyan {
-    @apply tile bg-gradient-to-br from-cyan-400 to-sky-500 shadow-sky-500/20;
+    @apply tile bg-sky-600 shadow-sky-500/20;
   }
   .tile-violet {
-    @apply tile bg-gradient-to-br from-violet-400 to-indigo-500 shadow-indigo-500/20;
+    @apply tile bg-brand shadow-brand-ring/20;
   }
   .tile-pink {
     @apply tile bg-gradient-to-br from-pink-400 to-rose-500 shadow-rose-500/20;
