@@ -5,12 +5,13 @@ import { diffFields } from '#/lib/audit'
 import type { GoalRule } from '#/lib/goals'
 import { BUSINESS_DAYS, validateGoal } from '#/lib/goals'
 import { recordAudit } from './audit.core'
-import { DEFAULT_ITEM_NAME, assertValidName, goalLink, replaceTeamsOfItem, teamsAuditMeta, teamsByItem } from './catalog.core'
+import { DEFAULT_ITEM_NAME, goalLink, replaceTeamsOfItem, teamsAuditMeta, teamsByItem } from './catalog.core'
 import { failOnDuplicate } from './duplicate'
 import type { AuthCtx } from './roles'
 import { fail, requireCan } from './roles'
 import { insertDefaultScoringRule } from './scoring-rules.core'
 import type { Reader, Tx } from './tx'
+import { assertValidName } from './validation'
 
 const DEFAULT_TARGET_POINTS = 100
 const DUPLICATE_NAME = 'Já existe uma meta com esse nome'
@@ -49,7 +50,7 @@ const sortedDays = (days: ReadonlyArray<number>) => [...days].sort((a, b) => a -
 const auditView = ({ name, targetPoints, activeDays }: GoalInput) => ({ name, targetPoints, activeDays: activeDays.join(',') })
 
 function assertValidGoal(input: GoalInput) {
-  assertValidName(input.name, 'meta')
+  assertValidName(input.name, 'da meta')
   const errors = validateGoal(input)
   if (errors.length) fail(errors.join('; '))
 }

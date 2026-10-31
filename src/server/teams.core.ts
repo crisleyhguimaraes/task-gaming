@@ -8,8 +8,8 @@ import { failOnDuplicate } from './duplicate'
 import type { AuthCtx } from './roles'
 import { can, canAccessTeam, fail, requireCan } from './roles'
 import type { Reader } from './tx'
+import { assertValidName } from './validation'
 
-const MIN_NAME_LENGTH = 2
 const MAX_NAME_LENGTH = 100
 const MAX_DESCRIPTION_LENGTH = 300
 const DUPLICATE_NAME = 'Já existe uma equipe com esse nome'
@@ -22,6 +22,7 @@ export async function assertTeamInTenant(tx: Reader, tenantId: string, teamId: s
 
 export async function createTeamFor(me: AuthCtx, name: string) {
   requireCan(me, 'team.manage')
+  assertValidName(name, 'da equipe', MAX_NAME_LENGTH)
   return db.transaction(async (tx) => {
     const [team] = await failOnDuplicate(DUPLICATE_NAME, tx.insert(teams).values({ tenantId: me.tenantId, name: name.trim() }).returning())
     await recordAudit(tx, me, { action: 'team.created', entityType: 'team', entityId: team!.id, meta: { name: team!.name } })
@@ -32,8 +33,7 @@ export async function createTeamFor(me: AuthCtx, name: string) {
 type TeamFields = { name: string; description: string }
 
 function assertValidFields({ name, description }: TeamFields) {
-  const length = name.trim().length
-  if (length < MIN_NAME_LENGTH || length > MAX_NAME_LENGTH) fail(`O nome da equipe precisa ter de ${MIN_NAME_LENGTH} a ${MAX_NAME_LENGTH} caracteres`)
+  assertValidName(name, 'da equipe', MAX_NAME_LENGTH)
   if (description.trim().length > MAX_DESCRIPTION_LENGTH) fail(`A descrição pode ter até ${MAX_DESCRIPTION_LENGTH} caracteres`)
 }
 

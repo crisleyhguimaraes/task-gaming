@@ -6,14 +6,6 @@ import type { Reader, Tx } from './tx'
 
 export const DEFAULT_ITEM_NAME = 'Padrão'
 
-const MIN_NAME_LENGTH = 2
-const MAX_NAME_LENGTH = 80
-
-export function assertValidName(name: string, label: string) {
-  const length = name.trim().length
-  if (length < MIN_NAME_LENGTH || length > MAX_NAME_LENGTH) fail(`O nome da ${label} precisa ter de ${MIN_NAME_LENGTH} a ${MAX_NAME_LENGTH} caracteres`)
-}
-
 /** A coluna de `teams` que aponta para o item do catálogo. NULL é o padrão do tenant, então o padrão nunca é alvo de vínculo. */
 export type TeamLink = { key: 'goalId' | 'scoringRuleId'; column: typeof teams.goalId | typeof teams.scoringRuleId }
 

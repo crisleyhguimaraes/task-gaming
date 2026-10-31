@@ -12,9 +12,8 @@ import { teamIdsOf } from './scope'
 import { insertDefaultStages } from './stages.core'
 import { assertTeamInTenant } from './teams.core'
 import type { Reader, Tx } from './tx'
+import { assertValidName } from './validation'
 
-const MIN_NAME_LENGTH = 2
-const MAX_NAME_LENGTH = 80
 const DEFAULT_PIPELINE_NAME = 'Funil de vendas'
 const DUPLICATE_NAME = 'Já existe um pipeline com esse nome'
 const NOT_LINKED = 'O pipeline não está vinculado à equipe do lead'
@@ -23,11 +22,6 @@ export async function insertDefaultPipeline(tx: Pick<typeof db, 'insert'>, tenan
   const [pipeline] = await tx.insert(pipelines).values({ tenantId, name: DEFAULT_PIPELINE_NAME, isDefault: true }).returning()
   await insertDefaultStages(tx, tenantId, pipeline!.id)
   return pipeline!
-}
-
-function assertValidName(name: string) {
-  const length = name.trim().length
-  if (length < MIN_NAME_LENGTH || length > MAX_NAME_LENGTH) fail(`O nome do pipeline precisa ter de ${MIN_NAME_LENGTH} a ${MAX_NAME_LENGTH} caracteres`)
 }
 
 const pipelineEntity = (pipelineId: string) => ({ entityType: 'pipeline', entityId: pipelineId })
@@ -58,7 +52,7 @@ async function openOpportunitiesIn(tx: Reader, pipelineId: string, teamId?: stri
 
 export async function createPipelineFor(me: AuthCtx, name: string) {
   requireCan(me, 'pipeline.configure')
-  assertValidName(name)
+  assertValidName(name, 'do pipeline')
   return db.transaction(async (tx) => {
     const [pipeline] = await failOnDuplicate(DUPLICATE_NAME, tx.insert(pipelines).values({ tenantId: me.tenantId, name: name.trim() }).returning())
     await insertDefaultStages(tx, me.tenantId, pipeline!.id)
@@ -69,7 +63,7 @@ export async function createPipelineFor(me: AuthCtx, name: string) {
 
 export async function renamePipelineFor(me: AuthCtx, pipelineId: string, name: string) {
   requireCan(me, 'pipeline.configure')
-  assertValidName(name)
+  assertValidName(name, 'do pipeline')
   return db.transaction(async (tx) => {
     const pipeline = await loadPipeline(tx, me, pipelineId, 'update')
     const [renamed] = await failOnDuplicate(DUPLICATE_NAME, tx.update(pipelines).set({ name: name.trim() }).where(eq(pipelines.id, pipeline.id)).returning())

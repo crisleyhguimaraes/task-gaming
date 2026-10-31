@@ -121,6 +121,13 @@ describe('updateTeamFor', () => {
   })
 })
 
+describe('createTeamFor', () => {
+  it('recusa nome curto ou longo demais no próprio core, sem depender do validador da rota', async () => {
+    await expect(createTeamFor(admin, ' a ')).rejects.toThrow('O nome da equipe precisa ter de 2 a 100 caracteres')
+    await expect(createTeamFor(admin, 'a'.repeat(101))).rejects.toThrow('O nome da equipe precisa ter de 2 a 100 caracteres')
+  })
+})
+
 describe('createTeamFor e deleteTeamFor exigem team.manage dentro do core', () => {
   it('líder e membro não criam nem excluem', async () => {
     const team = await addTeam(f, uniqueName('Protegida'))

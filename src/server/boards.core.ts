@@ -11,16 +11,10 @@ import { teamIdsOf } from './scope'
 import { inOpen } from './stats'
 import { assertTeamInTenant } from './teams.core'
 import type { Reader, Tx } from './tx'
+import { assertValidName } from './validation'
 
-const MIN_NAME_LENGTH = 2
-const MAX_NAME_LENGTH = 80
 const DUPLICATE_NAME = 'Já existe um board com esse nome'
 const NOT_LINKED = 'O board não está vinculado à equipe da tarefa'
-
-function assertValidName(name: string) {
-  const length = name.trim().length
-  if (length < MIN_NAME_LENGTH || length > MAX_NAME_LENGTH) fail(`O nome do board precisa ter de ${MIN_NAME_LENGTH} a ${MAX_NAME_LENGTH} caracteres`)
-}
 
 const boardEntity = (boardId: string) => ({ entityType: 'board', entityId: boardId })
 
@@ -83,7 +77,7 @@ async function linkTeams(tx: Tx, me: AuthCtx, board: { id: string; name: string 
 /** Admin cria com ou sem vínculo; líder, só vinculado a equipes que ele lidera. */
 export async function createBoardFor(me: AuthCtx, { name, teamIds }: { name: string; teamIds: ReadonlyArray<string> }) {
   requireCan(me, 'board.manage')
-  assertValidName(name)
+  assertValidName(name, 'do board')
   const uniqueTeamIds = [...new Set(teamIds)]
   if (!canManageBoard(me, uniqueTeamIds)) forbid()
   return db.transaction(async (tx) => {
@@ -97,7 +91,7 @@ export async function createBoardFor(me: AuthCtx, { name, teamIds }: { name: str
 
 export async function renameBoardFor(me: AuthCtx, boardId: string, name: string) {
   requireCan(me, 'board.manage')
-  assertValidName(name)
+  assertValidName(name, 'do board')
   return db.transaction(async (tx) => {
     const board = await loadManagedBoard(tx, me, boardId)
     const [renamed] = await failOnDuplicate(DUPLICATE_NAME, tx.update(boards).set({ name: name.trim() }).where(eq(boards.id, board.id)).returning())

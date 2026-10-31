@@ -9,8 +9,8 @@ import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { fail, requireCan } from './roles'
 import type { Reader, Tx } from './tx'
+import { assertValidName } from './validation'
 
-const MIN_NAME_LENGTH = 2
 const MAX_NAME_LENGTH = 60
 const MAX_PROBABILITY = 100
 
@@ -41,11 +41,6 @@ const lockStagesOf = (tx: Tx, tenantId: string, pipelineId: string) => stagesOf(
 
 type StageRow = Awaited<ReturnType<typeof listStagesFor>>[number]
 
-function assertValidName(name: string) {
-  const length = name.trim().length
-  if (length < MIN_NAME_LENGTH || length > MAX_NAME_LENGTH) fail(`O nome da etapa precisa ter de ${MIN_NAME_LENGTH} a ${MAX_NAME_LENGTH} caracteres`)
-}
-
 function assertValidProbability(probability: number) {
   if (!Number.isInteger(probability) || probability < 0 || probability > MAX_PROBABILITY) fail(`Probabilidade deve ser um inteiro entre 0 e ${MAX_PROBABILITY}`)
 }
@@ -75,7 +70,7 @@ export type NewStage = { pipelineId: string; name: string; kind: StageKind; prob
 
 export async function createStageFor(me: AuthCtx, data: NewStage) {
   requireCan(me, 'pipeline.configure')
-  assertValidName(data.name)
+  assertValidName(data.name, 'da etapa', MAX_NAME_LENGTH)
   assertValidProbability(data.probability)
   return db.transaction(async (tx) => {
     const stages = await lockStagesOf(tx, me.tenantId, data.pipelineId)
@@ -102,7 +97,7 @@ export type StageEdit = Partial<Omit<NewStage, 'pipelineId'>>
 
 export async function updateStageFor(me: AuthCtx, stageId: string, data: StageEdit) {
   requireCan(me, 'pipeline.configure')
-  if (data.name !== undefined) assertValidName(data.name)
+  if (data.name !== undefined) assertValidName(data.name, 'da etapa', MAX_NAME_LENGTH)
   if (data.probability !== undefined) assertValidProbability(data.probability)
   return db.transaction(async (tx) => {
     const { stages, stage } = await lockPipelineOfStage(tx, me, stageId)

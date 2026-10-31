@@ -3,13 +3,14 @@ import { db } from '#/db'
 import { scoringRules, teams } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
-import { DEFAULT_ITEM_NAME, assertValidName, replaceTeamsOfItem, scoringRuleLink, teamsAuditMeta, teamsByItem } from './catalog.core'
+import { DEFAULT_ITEM_NAME, replaceTeamsOfItem, scoringRuleLink, teamsAuditMeta, teamsByItem } from './catalog.core'
 import { failOnDuplicate } from './duplicate'
 import type { AuthCtx } from './roles'
 import { fail, requireCan } from './roles'
 import type { ScoringRules, ScoringSnapshot } from './scoring'
 import { FACTORY_RULES, validateRules } from './scoring'
 import type { Reader, Tx } from './tx'
+import { assertValidName } from './validation'
 
 const RULE_FIELDS = Object.keys(FACTORY_RULES) as Array<keyof ScoringRules>
 const DUPLICATE_NAME = 'Já existe uma pontuação com esse nome'
@@ -37,7 +38,7 @@ export async function snapshotOfTeam(tx: Reader, tenantId: string, teamId: strin
 const ruleEntity = (ruleId: string) => ({ entityType: 'scoring_rule', entityId: ruleId })
 
 function assertValidRule({ name, rules }: ScoringRuleInput) {
-  assertValidName(name, 'pontuação')
+  assertValidName(name, 'da pontuação')
   const errors = validateRules(rules)
   if (errors.length) fail(errors.join('; '))
 }
