@@ -1,31 +1,16 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
-import { teams, users } from '#/db/schema'
+import { users } from '#/db/schema'
 import { authMiddleware, requireCan } from './auth-context'
-import type { AuthCtx } from './roles'
-import { isAdmin } from './roles'
-import { createUserFor, deactivateUserCore, reactivateUserCore, updateUserCore } from './users.core'
+import { createUserFor, deactivateUserCore, listUsersFor, reactivateUserCore, updateUserCore } from './users.core'
 
 const assignableRoles = z.enum(['TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER'])
 
-const scope = (me: AuthCtx) =>
-  isAdmin(me) ? eq(users.tenantId, me.tenantId) : and(eq(users.tenantId, me.tenantId), eq(users.teamId, me.teamId ?? ''))
-
 export const listUsers = createServerFn()
   .middleware([authMiddleware])
-  .handler(async ({ context: { auth: me } }) => {
-    requireCan(me, 'user.read')
-    const list = await db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role, banned: users.banned, teamId: users.teamId, teamName: teams.name })
-      .from(users)
-      .leftJoin(teams, eq(teams.id, users.teamId))
-      .where(and(scope(me), ne(users.role, 'SUPER_ADMIN')))
-      .orderBy(asc(users.name))
-    const teamList = await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
-    return { users: list, teams: teamList }
-  })
+  .handler(({ context: { auth: me } }) => listUsersFor(me))
 
 export const createUser = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

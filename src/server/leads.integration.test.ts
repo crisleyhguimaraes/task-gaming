@@ -5,7 +5,7 @@ import { auditEvents, leads, notes, opportunities, pipelineStages, teams, users 
 import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, leadOptionsFor, leastLoadedOwner, listLeadsFor, updateLeadFor } from './leads.core'
 import { addNoteFor } from './notes.core'
 import type { AuthCtx } from './roles'
-import { addAdmin, makeTenant } from './test-fixtures'
+import { addAdmin, addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
@@ -429,5 +429,14 @@ describe('opções de equipe e pessoas', () => {
     expect(all.teams.map((t) => t.id)).not.toContain(other.team.id)
     expect(all.members.map((m) => m.id)).toContain(outsider.userId)
     expect(all.members.map((m) => m.id)).not.toContain(other.members[0]!.userId)
+  })
+})
+
+describe('usuário sem equipe', () => {
+  it('não lista leads nem opções de equipe', async () => {
+    const teamless = await addUser(f, { role: 'MEMBER', team: null })
+
+    expect(await listLeadsFor(teamless, {})).toEqual({ leads: [], total: 0 })
+    expect(await leadOptionsFor(teamless)).toEqual({ teams: [], members: [] })
   })
 })

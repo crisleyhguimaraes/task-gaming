@@ -2,8 +2,9 @@ import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { invitations, users } from '#/db/schema'
-import { acceptInvitationCore, validInvitation } from './invitations.core'
-import { makeTenant } from './test-fixtures'
+import { acceptInvitationCore, listInvitationsFor, validInvitation } from './invitations.core'
+import { ForbiddenError } from './roles'
+import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 beforeAll(async () => {
@@ -36,5 +37,31 @@ describe('convites', () => {
       .returning()
     expect((await validInvitation(inv!.token)).status).toBe('expired')
     expect((await validInvitation('nope')).status).toBe('invalid')
+  })
+})
+
+describe('listagem de convites', () => {
+  const pendingFor = async (teamId: string) => {
+    const [inv] = await db
+      .insert(invitations)
+      .values({ tenantId: f.tenant.id, teamId, email: `pend-${teamId}@test.local`, role: 'MEMBER', token: `tok-${teamId}`, expiresAt: new Date(Date.now() + 60_000) })
+      .returning()
+    return inv!.email
+  }
+  const emailsFor = async (me: Parameters<typeof listInvitationsFor>[0]) => (await listInvitationsFor(me)).map((i) => i.email)
+
+  it('o líder vê só os convites da equipe, o admin vê o tenant e quem não gerencia convites é recusado', async () => {
+    const teamB = await addTeam(f, 'B')
+    const [mine, theirs] = [await pendingFor(f.team.id), await pendingFor(teamB.id)]
+
+    expect(await emailsFor(f.leader)).toEqual([mine])
+    expect(await emailsFor(await addAdmin(f))).toEqual(expect.arrayContaining([mine, theirs]))
+    await expect(listInvitationsFor(await addUser(f, { role: 'MEMBER', team: f.team }))).rejects.toThrow(ForbiddenError)
+  })
+
+  it('usuário sem equipe com permissão de convidar vê lista vazia, sem erro', async () => {
+    const teamless = { ...(await addUser(f, { role: 'MEMBER', team: null })), capabilityOverrides: { 'invitation.manage': true } }
+
+    expect(await listInvitationsFor(teamless)).toEqual([])
   })
 })

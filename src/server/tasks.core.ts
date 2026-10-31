@@ -1,16 +1,17 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Priority } from '#/db/schema'
-import { challenges, opportunities, taskDependencies, taskTimeLogs, tasks, teams, users } from '#/db/schema'
+import { challenges, opportunities, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
+import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
+import { assertMember, inTeams, inTenantTeams } from './scope'
 import { scoreTask } from './scoring'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+import type { Tx } from './tx'
 
 export { canManage, canSee, fail, isAdmin }
 
@@ -39,12 +40,9 @@ async function loadTask(tx: Tx, me: AuthCtx, taskId: string) {
 /** Inicia (ou retoma / puxa do pool). Pausa qualquer outra tarefa do usuário. */
 export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
   return db.transaction(async (tx) => {
-    const [blocker] = await tx
-      .select({ title: tasks.title })
-      .from(taskDependencies)
-      .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
-      .where(and(eq(taskDependencies.taskId, taskId), sql`${tasks.status} <> 'finished'`))
-      .limit(1)
+    // Antes de qualquer consulta que devolva dado da tarefa: fora do tenant ou da visibilidade, ela não existe.
+    await loadTask(tx, me, taskId)
+    const [blocker] = await openBlockers(tx, [taskId]).limit(1)
     if (blocker) fail(`Bloqueada: depende de "${blocker.title}"`)
     const pausedIds = await closeOpenLogs(tx, eq(taskTimeLogs.userId, me.userId), now)
     if (pausedIds.length) {
@@ -64,7 +62,7 @@ export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()
           eq(tasks.tenantId, me.tenantId),
           inArray(tasks.status, ['pending', 'paused']),
           or(isNull(tasks.assignedToId), eq(tasks.assignedToId, me.userId)),
-          isAdmin(me) ? undefined : eq(tasks.teamId, me.teamId ?? ''),
+          inTeams(tasks.teamId, me),
         ),
       )
       .returning()
@@ -182,7 +180,6 @@ export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = n
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'pending' && task.status !== 'paused') fail('Só tarefas pendentes ou pausadas podem ser concluídas manualmente')
     if (task.assignedToId && task.assignedToId !== me.userId && !canManage(me, task)) forbid()
-    if (!task.assignedToId && !canManage(me, task) && task.teamId !== me.teamId) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx
       .update(tasks)
@@ -359,18 +356,12 @@ function notifyAssignee(tx: Tx, me: AuthCtx, task: { id: string; title: string; 
   })
 }
 
-async function assertAssigneeInTeam(tx: Tx, assignedToId: string | null, teamId: string) {
-  if (!assignedToId) return
-  const [u] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, assignedToId), eq(users.teamId, teamId)))
-  if (!u) fail('Responsável não pertence à equipe')
-}
-
 export async function createTaskFor(me: AuthCtx, data: NewTask) {
   if (!canManage(me, { teamId: data.teamId })) forbid()
   return db.transaction(async (tx) => {
     const [team] = await tx.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))
     if (!team) fail('Equipe não encontrada')
-    await assertAssigneeInTeam(tx, data.assignedToId, data.teamId)
+    if (data.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: data.teamId })
     await assertOpportunityOfTeam(tx, me, data.opportunityId, data.teamId)
     const [task] = await tx
       .insert(tasks)
@@ -412,7 +403,7 @@ export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
     const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
     if (!task || !canManage(me, task)) forbid()
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa encerrada não pode ser editada')
-    await assertAssigneeInTeam(tx, data.assignedToId, task.teamId)
+    if (data.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: task.teamId })
     if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')
     if (data.scheduledStart && data.scheduledEnd && data.scheduledEnd < data.scheduledStart) fail('Fim do cronograma antes do início')
     const [updated] = await tx
@@ -438,20 +429,19 @@ export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
 
 export type TaskListFilters = { teamId?: string; assigneeId?: string; priority?: Priority; search?: string }
 
-/** Admin vê o tenant (ou a equipe filtrada); os demais, só a própria equipe. */
-export function taskTeamScope(me: AuthCtx, teamId?: string) {
-  if (!isAdmin(me)) return eq(tasks.teamId, me.teamId ?? '')
-  return teamId ? eq(tasks.teamId, teamId) : undefined
-}
-
 /** Escopo de visibilidade compartilhado entre a lista do board e a exportação. */
 export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
   return and(
     eq(tasks.tenantId, me.tenantId),
-    taskTeamScope(me, filters.teamId),
+    inTeams(tasks.teamId, me, { only: filters.teamId }),
     isNull(tasks.challengeId),
     filters.assigneeId === 'pool' ? isNull(tasks.assignedToId) : filters.assigneeId ? eq(tasks.assignedToId, filters.assigneeId) : undefined,
     filters.priority ? eq(tasks.priority, filters.priority) : undefined,
     filters.search ? or(ilike(tasks.title, `%${filters.search}%`), ilike(tasks.description, `%${filters.search}%`)) : undefined,
   )
+}
+
+/** Quem pode aparecer como responsável no filtro do board, no mesmo escopo da lista. */
+export function boardMembersFor(me: AuthCtx, teamId?: string) {
+  return db.select({ id: users.id, name: users.name }).from(users).where(inTenantTeams(users, me, { only: teamId })).orderBy(asc(users.name))
 }

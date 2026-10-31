@@ -4,7 +4,7 @@ import { db } from '#/db'
 import { challenges, tasks } from '#/db/schema'
 import { listChallengesFor } from './challenges.core'
 import { attemptChallengeFor, finishTaskFor } from './tasks.core'
-import { makeTenant } from './test-fixtures'
+import { addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 const min = (n: number) => n * 60
@@ -68,5 +68,13 @@ describe('desafios', () => {
     expect(s.isNewRecord).toBe(false)
     const list = await listChallengesFor(a)
     expect(list.find((x) => x.id === c!.id)!.record).toBeNull()
+  })
+})
+
+describe('escopo da listagem', () => {
+  it('usuário sem equipe não vê desafios, sem erro', async () => {
+    const teamless = await addUser(f, { role: 'MEMBER', team: null })
+
+    expect(await listChallengesFor(teamless)).toEqual([])
   })
 })

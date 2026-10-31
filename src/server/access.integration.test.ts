@@ -26,10 +26,10 @@ describe('auditDenials', () => {
   it('negação de acesso é relançada e deixa rastro com usuário, tenant e função', async () => {
     const member = f.members[0]!
 
-    await expect(auditDenials(member, { function: 'listAuditEvents' }, async () => requireCan(member, 'audit.read'))).rejects.toThrow('Sem permissão')
+    await expect(auditDenials(member, { function: 'listAuditPage' }, async () => requireCan(member, 'audit.read'))).rejects.toThrow('Sem permissão')
 
     const [event] = await deniedEvents()
-    expect(event).toMatchObject({ actorId: member.userId, actorName: member.name, entityType: 'user', entityId: member.userId, meta: { function: 'listAuditEvents' } })
+    expect(event).toMatchObject({ actorId: member.userId, actorName: member.name, entityType: 'user', entityId: member.userId, meta: { function: 'listAuditPage' } })
   })
 
   it('erro comum passa intacto e não vira negação de acesso', async () => {

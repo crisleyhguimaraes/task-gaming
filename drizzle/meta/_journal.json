@@ -57,6 +57,13 @@
       "when": 1793385504626,
       "tag": "0007_glossy_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793452220340,
+      "tag": "0008_limpa_overrides_nao_delegaveis",
+      "breakpoints": true
     }
   ]
 }

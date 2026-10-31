@@ -8,8 +8,7 @@ import { calculateNewOrder } from '#/lib/order'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { fail, requireCan } from './roles'
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+import type { Reader, Tx } from './tx'
 
 const MIN_NAME_LENGTH = 2
 const MAX_NAME_LENGTH = 60
@@ -28,7 +27,7 @@ const wasUsed = sql<boolean>`(
   or exists (select 1 from opportunity_stage_changes c where c.from_stage_id = pipeline_stages.id or c.to_stage_id = pipeline_stages.id)
 )`
 
-const stagesOf = (tx: Pick<typeof db, 'select'>, tenantId: string) =>
+const stagesOf = (tx: Reader, tenantId: string) =>
   tx
     .select({ ...getTableColumns(pipelineStages), inUse: wasUsed })
     .from(pipelineStages)

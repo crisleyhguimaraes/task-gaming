@@ -107,7 +107,7 @@ describe('equipes', () => {
   it('equipe com tarefas não é excluída e não gera evento', async () => {
     await newTask()
 
-    await expect(deleteTeamFor(admin, f.team.id)).rejects.toThrow('Equipe tem tarefas')
+    await expect(deleteTeamFor(admin, f.team.id)).rejects.toThrow('Equipe tem membros, tarefas, desafios ou leads')
 
     expect((await eventsOf(f.tenant.id, f.team.id)).filter((e) => e.action === 'team.deleted')).toHaveLength(0)
   })

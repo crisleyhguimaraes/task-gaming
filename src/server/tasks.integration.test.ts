@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { taskDependencies, taskTimeLogs, tasks } from '#/db/schema'
-import { cancelTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, validatePointsFor } from './tasks.core'
-import { makeTenant } from './test-fixtures'
+import { taskDependencies, taskTimeLogs, tasks, users } from '#/db/schema'
+import { boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskListWhere, updateTaskFor, validatePointsFor } from './tasks.core'
+import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 const min = (n: number) => n * 60
@@ -130,6 +130,21 @@ describe('tasks.core', () => {
     await expect(finishTaskManuallyFor(a, running.id)).rejects.toThrow(/pendentes ou pausadas/)
   })
 
+  it('iniciar tarefa bloqueada de outro tenant não revela o título do bloqueador', async () => {
+    const foreign = await makeTenant(0)
+    try {
+      const [blocker, blocked] = await db
+        .insert(tasks)
+        .values(['Segredo do outro tenant', 'Bloqueada alheia'].map((title) => ({ tenantId: foreign.tenant.id, teamId: foreign.team.id, createdById: foreign.leader.userId, title, basePoints: 1, estimatedSeconds: min(1) })))
+        .returning()
+      await db.insert(taskDependencies).values({ tenantId: foreign.tenant.id, taskId: blocked!.id, dependsOnTaskId: blocker!.id })
+
+      await expect(startTaskFor(f.members[0]!, blocked!.id)).rejects.toThrow('Tarefa não encontrada')
+    } finally {
+      await foreign.cleanup()
+    }
+  })
+
   it('tarefa bloqueada por dependência não inicia; libera quando a dependência conclui', async () => {
     const a = f.members[0]!
     const dep = await newTask(a.userId)
@@ -140,5 +155,63 @@ describe('tasks.core', () => {
     await finishTaskFor(a, dep.id, new Date(Date.now() + min(9) * 1000))
     const started = await startTaskFor(a, t.id)
     expect(started.status).toBe('in_progress')
+  })
+})
+
+describe('usuário sem equipe', () => {
+  it('a lista do board vem vazia, sem erro', async () => {
+    await newTask(null)
+    const teamless = await addUser(f, { role: 'MEMBER', team: null })
+
+    expect(await db.select().from(tasks).where(taskListWhere(teamless, {}))).toEqual([])
+  })
+
+  it('não puxa tarefa do pool', async () => {
+    const pool = await newTask(null)
+    const teamless = await addUser(f, { role: 'MEMBER', team: null })
+
+    await expect(startTaskFor(teamless, pool.id)).rejects.toThrow('Tarefa não encontrada')
+  })
+})
+
+describe('escopo da lista do board', () => {
+  it('quem pede equipe alheia recebe lista vazia, não a da própria equipe', async () => {
+    const teamB = await addTeam(f, 'B')
+    await db.insert(tasks).values({ tenantId: f.tenant.id, teamId: teamB.id, createdById: f.leader.userId, title: 'da B', basePoints: 1, estimatedSeconds: min(1) })
+    const own = await db.select().from(tasks).where(taskListWhere(f.members[0]!, {}))
+
+    const asked = await db.select().from(tasks).where(taskListWhere(f.members[0]!, { teamId: teamB.id }))
+
+    expect(own.length).toBeGreaterThan(0)
+    expect(asked).toEqual([])
+  })
+
+  it('os membros oferecidos como responsável respeitam o mesmo escopo', async () => {
+    const teamB = await addTeam(f, 'B2')
+    const inB = await addUser(f, { role: 'MEMBER', team: teamB })
+    const admin = await addAdmin(f)
+
+    const ownIds = (await boardMembersFor(f.members[0]!)).map((u) => u.id)
+    const alienIds = (await boardMembersFor(f.members[0]!, teamB.id)).map((u) => u.id)
+    const adminIds = (await boardMembersFor(admin, teamB.id)).map((u) => u.id)
+
+    expect(ownIds).toContain(f.members[1]!.userId)
+    expect(ownIds).not.toContain(inB.userId)
+    expect(alienIds).toEqual([])
+    expect(adminIds).toEqual([inB.userId])
+  })
+})
+
+describe('responsável da tarefa', () => {
+  it('não atribui a usuário desativado, nem ao criar nem ao editar', async () => {
+    const deactivated = await addUser(f, { role: 'MEMBER', team: f.team })
+    await db.update(users).set({ banned: true }).where(eq(users.id, deactivated.userId))
+    const task = await newTask(null)
+    const input = { title: 'Nova', basePoints: 10, estimatedMinutes: 5, teamId: f.team.id }
+
+    await expect(createTaskFor(f.leader, { ...input, assignedToId: deactivated.userId })).rejects.toThrow('Responsável não pertence à equipe')
+    await expect(
+      updateTaskFor(f.leader, { taskId: task.id, title: 'T', basePoints: 100, estimatedMinutes: 10, priority: 'medium', dueDate: null, scheduledStart: null, scheduledEnd: null, assignedToId: deactivated.userId }),
+    ).rejects.toThrow('Responsável não pertence à equipe')
   })
 })

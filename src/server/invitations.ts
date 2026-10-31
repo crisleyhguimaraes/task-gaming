@@ -1,22 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, desc, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
-import { db } from '#/db'
-import { invitations, teams } from '#/db/schema'
 import { authMiddleware, requireCan } from './auth-context'
-import { acceptInvitationCore, cancelInvitationFor, createInvitationCore, invitationScope, resendInvitationFor, validInvitation } from './invitations.core'
+import { acceptInvitationCore, cancelInvitationFor, createInvitationCore, listInvitationsFor, resendInvitationFor, validInvitation } from './invitations.core'
 
 export const listInvitations = createServerFn()
   .middleware([authMiddleware])
-  .handler(async ({ context: { auth: me } }) => {
-    requireCan(me, 'invitation.manage')
-    return db
-      .select({ id: invitations.id, email: invitations.email, role: invitations.role, teamName: teams.name, expiresAt: invitations.expiresAt, createdAt: invitations.createdAt })
-      .from(invitations)
-      .leftJoin(teams, eq(teams.id, invitations.teamId))
-      .where(and(invitationScope(me), isNull(invitations.acceptedAt)))
-      .orderBy(desc(invitations.createdAt))
-  })
+  .handler(({ context: { auth: me } }) => listInvitationsFor(me))
 
 export const createInvitation = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

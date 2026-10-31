@@ -1,46 +1,31 @@
-import { and, asc, count, eq, gte, isNotNull, lte, max, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gte, isNotNull, lte, max } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '#/db'
 import type { AuditMeta, LeadStatus } from '#/db/schema'
 import { leads, opportunities, opportunityStageChanges, pipelineStages, tasks, teams, users } from '#/db/schema'
-import type { AuditAction } from '#/lib/audit'
 import { diffFields } from '#/lib/audit'
 import { averageCycleDays, computeConversion, weightedAmount, winRate } from '#/lib/funnel'
 import { calculateNewOrder } from '#/lib/order'
+import type { MoveOptions, Owned } from '#/lib/opportunity'
+import { canEditRecord, canSeeRecord, lostReasonFor, planMove } from '#/lib/opportunity'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
-import { can, canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
+import { can, fail, forbid, isAdmin, requireCan } from './roles'
+import { assertMember, inTeams } from './scope'
 import { listStagesFor } from './stages.core'
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+import type { Tx } from './tx'
 
 const MIN_TITLE_LENGTH = 2
-const MIN_LOST_REASON_LENGTH = 3
 const QUALIFIED: LeadStatus = 'qualified'
 
 export type OpportunityData = { title: string; amountCents: number; expectedCloseDate?: string | null; ownerId?: string | null }
 export type OpportunityEdit = { title: string; amountCents: number; expectedCloseDate: string | null; ownerId: string | null }
-export type MoveOptions = { sortOrder?: number; lostReason?: string }
-
-type Owned = { teamId: string; ownerId: string | null }
-
-const asTaskLike = ({ teamId, ownerId }: Owned) => ({ teamId, assignedToId: ownerId })
-const canSeeRecord = (me: AuthCtx, record: Owned) => canSee(me, asTaskLike(record))
-
-/** Quem tem dono só deixa o dono ou um gestor mexer; sem dono, qualquer um que enxergue. */
-const canEditRecord = (me: AuthCtx, record: Owned) => canSeeRecord(me, record) && (record.ownerId === null || record.ownerId === me.userId || canManage(me, record))
 
 const canWriteOpportunity = (me: AuthCtx, record: Owned) => can(me, 'opportunity.write') && canEditRecord(me, record)
 
 function assertValidFields({ title, amountCents }: Pick<OpportunityData, 'title' | 'amountCents'>) {
   if (title.trim().length < MIN_TITLE_LENGTH) fail(`O título precisa ter ao menos ${MIN_TITLE_LENGTH} caracteres`)
   if (!Number.isSafeInteger(amountCents) || amountCents < 0) fail('O valor deve ser um inteiro em centavos, maior ou igual a zero')
-}
-
-async function assertOwnerInTeam(tx: Tx, ownerId: string | null, teamId: string) {
-  if (!ownerId) return
-  const [owner] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, ownerId), eq(users.teamId, teamId)))
-  if (!owner) fail('Responsável não pertence à equipe')
 }
 
 async function loadLead(tx: Tx, me: AuthCtx, leadId: string) {
@@ -61,10 +46,10 @@ async function endOfStage(tx: Tx, stageId: string) {
   return calculateNewOrder(row?.last ?? null, null)
 }
 
-async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId: string }, data: OpportunityData) {
+async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId: string }, data: OpportunityData, now = new Date()) {
   assertValidFields(data)
   const ownerId = data.ownerId ?? null
-  await assertOwnerInTeam(tx, ownerId, lead.teamId)
+  if (ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: lead.teamId })
   const [firstOpen] = await tx
     .select()
     .from(pipelineStages)
@@ -85,9 +70,10 @@ async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId
       stageId: firstOpen.id,
       sortOrder: await endOfStage(tx, firstOpen.id),
       createdById: me.userId,
+      createdAt: now,
     })
     .returning()
-  await tx.insert(opportunityStageChanges).values({ tenantId: me.tenantId, opportunityId: opp!.id, fromStageId: null, toStageId: firstOpen.id, changedById: me.userId })
+  await tx.insert(opportunityStageChanges).values({ tenantId: me.tenantId, opportunityId: opp!.id, fromStageId: null, toStageId: firstOpen.id, changedById: me.userId, changedAt: now })
   await recordAudit(tx, me, {
     action: 'opportunity.created',
     entityType: 'opportunity',
@@ -97,9 +83,9 @@ async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId
   return opp!
 }
 
-export async function createOpportunityFor(me: AuthCtx, leadId: string, data: OpportunityData) {
+export async function createOpportunityFor(me: AuthCtx, leadId: string, data: OpportunityData, now = new Date()) {
   requireCan(me, 'opportunity.write')
-  return db.transaction(async (tx) => insertOpportunity(tx, me, await loadLead(tx, me, leadId), data))
+  return db.transaction(async (tx) => insertOpportunity(tx, me, await loadLead(tx, me, leadId), data, now))
 }
 
 /** Cria a oportunidade e qualifica o lead na mesma transação: nunca um sem o outro. */
@@ -123,7 +109,7 @@ export async function updateOpportunityFor(me: AuthCtx, opportunityId: string, d
   return db.transaction(async (tx) => {
     const opp = await loadOpportunity(tx, me, opportunityId)
     if (!canEditRecord(me, opp)) forbid()
-    if (data.ownerId !== opp.ownerId) await assertOwnerInTeam(tx, data.ownerId, opp.teamId)
+    if (data.ownerId && data.ownerId !== opp.ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: data.ownerId, teamId: opp.teamId })
     const [updated] = await tx
       .update(opportunities)
       .set({ title: data.title.trim(), amountCents: data.amountCents, expectedCloseDate: data.expectedCloseDate, ownerId: data.ownerId })
@@ -135,60 +121,38 @@ export async function updateOpportunityFor(me: AuthCtx, opportunityId: string, d
   })
 }
 
-type StageRow = typeof pipelineStages.$inferSelect
-
-function moveAction(from: StageRow, to: StageRow): AuditAction {
-  if (to.kind === 'won') return 'opportunity.won'
-  if (to.kind === 'lost') return 'opportunity.lost'
-  return from.kind === 'open' ? 'opportunity.moved' : 'opportunity.reopened'
-}
-
-function lostReasonFor(target: StageRow, raw: string | undefined) {
-  if (target.kind !== 'lost') return null
-  const reason = raw?.trim() ?? ''
-  if (reason.length < MIN_LOST_REASON_LENGTH) fail(`Informe o motivo da perda (mínimo ${MIN_LOST_REASON_LENGTH} caracteres)`)
-  return reason
-}
-
-export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toStageId: string, options: MoveOptions = {}) {
+export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toStageId: string, options: MoveOptions = {}, now?: Date) {
   requireCan(me, 'opportunity.write')
+  if (options.sortOrder !== undefined && !Number.isFinite(options.sortOrder)) fail('Posição inválida')
   return db.transaction(async (tx) => {
     const opp = await loadOpportunity(tx, me, opportunityId)
+    // O relógio padrão só é lido depois do lock da linha: assim `changedAt` segue a ordem em que os movimentos simultâneos entram na fila.
+    const at = now ?? new Date()
     if (!canEditRecord(me, opp)) forbid()
     const stages = await tx.select().from(pipelineStages).where(eq(pipelineStages.tenantId, me.tenantId))
     const target = stages.find((s) => s.id === toStageId)
     const current = stages.find((s) => s.id === opp.stageId)
     if (!target || !current) fail('Etapa não encontrada')
 
-    if (target.id === current.id) {
-      if (options.sortOrder === undefined) return opp
-      const [reordered] = await tx.update(opportunities).set({ sortOrder: options.sortOrder }).where(eq(opportunities.id, opp.id)).returning()
+    const plan = planMove(current, target, options, at)
+    if (plan.type === 'unchanged') return opp
+    if (plan.type === 'reorder') {
+      const [reordered] = await tx.update(opportunities).set({ sortOrder: plan.sortOrder }).where(eq(opportunities.id, opp.id)).returning()
       return reordered!
     }
 
-    if (current.kind !== 'open') requireCan(me, 'opportunity.reopen')
+    if (plan.reopens) requireCan(me, 'opportunity.reopen')
     const lostReason = lostReasonFor(target, options.lostReason)
     const [moved] = await tx
       .update(opportunities)
-      .set({
-        stageId: target.id,
-        sortOrder: options.sortOrder ?? (await endOfStage(tx, target.id)),
-        closedAt: target.kind === 'open' ? null : new Date(),
-        lostReason,
-      })
+      .set({ stageId: target.id, sortOrder: options.sortOrder ?? (await endOfStage(tx, target.id)), closedAt: plan.closedAt, lostReason })
       .where(eq(opportunities.id, opp.id))
       .returning()
-    await tx.insert(opportunityStageChanges).values({ tenantId: me.tenantId, opportunityId: opp.id, fromStageId: current.id, toStageId: target.id, changedById: me.userId, changedAt: new Date() })
+    await tx.insert(opportunityStageChanges).values({ tenantId: me.tenantId, opportunityId: opp.id, fromStageId: current.id, toStageId: target.id, changedById: me.userId, changedAt: at })
     const meta: AuditMeta = { fromStage: current.name, toStage: target.name, ...(lostReason ? { lostReason } : {}) }
-    await recordAudit(tx, me, { action: moveAction(current, target), entityType: 'opportunity', entityId: opp.id, changes: diffFields(opp, moved!, ['stageId']), meta })
+    await recordAudit(tx, me, { action: plan.action, entityType: 'opportunity', entityId: opp.id, changes: diffFields(opp, moved!, ['stageId']), meta })
     return moved!
   })
-}
-
-/** Gestor geral escolhe a equipe; os demais ficam presos à própria, qualquer que seja o pedido. */
-function teamFilter(me: AuthCtx, requestedTeamId?: string) {
-  if (isAdmin(me)) return requestedTeamId ? eq(opportunities.teamId, requestedTeamId) : undefined
-  return me.teamId ? eq(opportunities.teamId, me.teamId) : sql`false`
 }
 
 export type PipelineFilters = { teamId?: string; ownerId?: string }
@@ -213,7 +177,7 @@ export async function listPipelineFor(me: AuthCtx, filters: PipelineFilters = {}
       .from(opportunities)
       .innerJoin(leads, eq(leads.id, opportunities.leadId))
       .leftJoin(users, eq(users.id, opportunities.ownerId))
-      .where(and(eq(opportunities.tenantId, me.tenantId), teamFilter(me, filters.teamId), filters.ownerId ? eq(opportunities.ownerId, filters.ownerId) : undefined))
+      .where(and(eq(opportunities.tenantId, me.tenantId), inTeams(opportunities.teamId, me, { only: filters.teamId }), filters.ownerId ? eq(opportunities.ownerId, filters.ownerId) : undefined))
       .orderBy(asc(opportunities.sortOrder), asc(opportunities.createdAt), asc(opportunities.id)),
   ])
   return stages.map((stage) => {
@@ -244,7 +208,7 @@ export type FunnelFilters = { from: Date; to: Date; teamId?: string }
 // NOTE: agrega em memória as linhas do período; passando de dezenas de milhares de oportunidades, mover a contagem para group by no SQL.
 /** Conversão olha a coorte criada no período; taxa de ganho e ciclo olham o que fechou no período. */
 export async function funnelFor(me: AuthCtx, { from, to, teamId }: FunnelFilters) {
-  const scope = and(eq(opportunities.tenantId, me.tenantId), teamFilter(me, teamId))
+  const scope = and(eq(opportunities.tenantId, me.tenantId), inTeams(opportunities.teamId, me, { only: teamId }))
   const createdInPeriod = and(scope, gte(opportunities.createdAt, from), lte(opportunities.createdAt, to))
   const [stages, [cohort], changes, closed] = await Promise.all([
     db.select().from(pipelineStages).where(eq(pipelineStages.tenantId, me.tenantId)).orderBy(asc(pipelineStages.sortOrder)),

@@ -3,6 +3,7 @@ import { db } from '#/db'
 import { taskTimeLogs, tasks, teams, tenants, users } from '#/db/schema'
 import type { AuthCtx } from './roles'
 import { isAdmin } from './roles'
+import { inTenantTeams } from './scope'
 
 const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
 
@@ -171,7 +172,7 @@ export async function attentionCount(me: AuthCtx) {
     ? await db
         .select({ n: sql<number>`count(*)::int` })
         .from(tasks)
-        .where(and(isAdmin(me) ? eq(tasks.tenantId, me.tenantId) : eq(tasks.teamId, me.teamId ?? ''), eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
+        .where(and(inTenantTeams(tasks, me), eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
     : [{ n: 0 }]
   return { pool: pool?.n ?? 0, validation: val?.n ?? 0 }
 }

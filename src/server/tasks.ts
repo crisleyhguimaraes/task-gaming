@@ -1,15 +1,16 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { taskDependencies, tasks, teams, users } from '#/db/schema'
 import { authMiddleware } from './auth-context'
 import { canManage, canSee, fail, forbid, isAdmin } from './roles'
-import { activeTaskFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskListWhere, taskPlayerState, taskTeamScope, updateTaskFor, validatePointsFor } from './tasks.core'
+import { activeMembersOf, inTeams } from './scope'
+import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
 import { capFor } from './time'
 import { heroStats, pointsByDay, ranking, streak, teamFeed, tenantSettings, todayProgress, totalPoints } from './stats'
 import { listChallengesFor } from './challenges.core'
-import { blockedSet } from './dependencies.core'
+import { blockedSet, openBlockers } from './dependencies.core'
 
 const byId = z.object({ taskId: z.uuid() })
 
@@ -39,11 +40,7 @@ export const getTask = createServerFn()
       .where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
     if (!row || !canSee(me, row.task)) fail('Tarefa não encontrada')
     const player = await taskPlayerState(row.task.id, me.userId)
-    const blockedBy = await db
-      .select({ id: tasks.id, title: tasks.title })
-      .from(taskDependencies)
-      .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
-      .where(and(eq(taskDependencies.taskId, row.task.id), ne(tasks.status, 'finished')))
+    const blockedBy = await openBlockers(db, [row.task.id])
     return {
       ...row.task,
       assigneeName: row.assigneeName,
@@ -165,12 +162,12 @@ export const getTaskFormOptions = createServerFn()
     const teamList = await db
       .select({ id: teams.id, name: teams.name })
       .from(teams)
-      .where(and(eq(teams.tenantId, me.tenantId), isAdmin(me) ? undefined : eq(teams.id, me.teamId ?? '')))
+      .where(and(eq(teams.tenantId, me.tenantId), inTeams(teams.id, me)))
       .orderBy(asc(teams.name))
     const memberList = await db
       .select({ id: users.id, name: users.name, teamId: users.teamId })
       .from(users)
-      .where(and(eq(users.tenantId, me.tenantId), inArray(users.teamId, teamList.map((t) => t.id))))
+      .where(activeMembersOf(me.tenantId, teamList.map((t) => t.id)))
       .orderBy(asc(users.name))
     return { teams: teamList, members: memberList }
   })
@@ -191,7 +188,6 @@ export const listTasks = createServerFn()
   .middleware([authMiddleware])
   .validator(taskFilterSchema)
   .handler(async ({ data, context: { auth: me } }) => {
-    const teamScope = taskTeamScope(me, data.teamId)
     const rows = await db
       .select({ task: tasks, assigneeName: users.name, teamName: teams.name })
       .from(tasks)
@@ -202,12 +198,8 @@ export const listTasks = createServerFn()
     const teamList = isAdmin(me)
       ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
       : []
-    const memberList = await db
-      .select({ id: users.id, name: users.name })
-      .from(users)
-      .where(and(eq(users.tenantId, me.tenantId), teamScope ? eq(users.teamId, data.teamId ?? me.teamId ?? '') : undefined))
-      .orderBy(asc(users.name))
-    const blocked = await blockedSet(rows.map((r) => r.task.id))
+    const memberList = await boardMembersFor(me, data.teamId)
+    const blocked = await blockedSet(db, rows.map((r) => r.task.id))
     const ids = rows.map((r) => r.task.id)
     const edges = ids.length
       ? await db

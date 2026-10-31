@@ -63,13 +63,16 @@ export type CapabilityOverrides = Partial<Record<Capability, boolean>>
 export const overridableRoles = ['TEAM_LEADER', 'MEMBER'] as const satisfies ReadonlyArray<Role>
 export type OverridableRole = (typeof overridableRoles)[number]
 
-/** Delegar estas daria a um papel de tenant o controle da plataforma ou das próprias permissões. */
-export const nonDelegableCapabilities: ReadonlyArray<Capability> = ['tenant.manage', 'permissions.manage']
+/** Escopo de tenant ou plataforma: override é por papel, sem equipe, então delegar daria a um líder poder sobre a organização toda. */
+export const nonDelegableCapabilities: ReadonlyArray<Capability> = ['tenant.manage', 'tenant.configure', 'team.manage', 'permissions.manage', 'audit.read', 'pipeline.configure']
 
 const grantedTo = (capability: Capability): ReadonlyArray<Role> => defaultGrants[capability]
 
-export const can = (ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) =>
-  ctx.capabilityOverrides?.[capability] ?? grantedTo(capability).includes(ctx.role)
+/** Override de capability não delegável é ignorado: se já estiver gravado, não vale. */
+export const can = (ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) => {
+  const override = nonDelegableCapabilities.includes(capability) ? undefined : ctx.capabilityOverrides?.[capability]
+  return override ?? grantedTo(capability).includes(ctx.role)
+}
 
 export function requireCan(ctx: Pick<AuthCtx, 'role' | 'capabilityOverrides'>, capability: Capability) {
   if (!can(ctx, capability)) forbid()

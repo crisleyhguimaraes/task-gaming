@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Role } from '#/db/schema'
 import { invitations, teams, tenants, users } from '#/db/schema'
@@ -7,13 +7,23 @@ import { auth } from '#/lib/auth'
 import { recordAudit } from './audit.core'
 import { sendMail } from './mail'
 import type { AuthCtx } from './roles'
-import { fail, forbid, isAdmin } from './roles'
+import { fail, forbid, isAdmin, requireCan } from './roles'
+import { inTenantTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
 
 export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
 
-export const invitationScope = (me: AuthCtx) =>
-  isAdmin(me) ? eq(invitations.tenantId, me.tenantId) : and(eq(invitations.tenantId, me.tenantId), eq(invitations.teamId, me.teamId ?? ''))
+export const invitationScope = (me: AuthCtx) => inTenantTeams(invitations, me)
+
+export async function listInvitationsFor(me: AuthCtx) {
+  requireCan(me, 'invitation.manage')
+  return db
+    .select({ id: invitations.id, email: invitations.email, role: invitations.role, teamName: teams.name, expiresAt: invitations.expiresAt, createdAt: invitations.createdAt })
+    .from(invitations)
+    .leftJoin(teams, eq(teams.id, invitations.teamId))
+    .where(and(invitationScope(me), isNull(invitations.acceptedAt)))
+    .orderBy(desc(invitations.createdAt))
+}
 
 const newToken = () => randomBytes(32).toString('hex')
 const newExpiry = () => new Date(Date.now() + SEVEN_DAYS)
@@ -24,7 +34,6 @@ export async function createInvitationCore(me: AuthCtx, data: { email: string; t
   const [exists] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email))
   if (exists) fail('Este email já tem conta')
   const inv = await db.transaction(async (tx) => {
-    // reenvio: substitui convite pendente do mesmo email
     await tx.delete(invitations).where(and(eq(invitations.tenantId, me.tenantId), eq(invitations.email, data.email), isNull(invitations.acceptedAt)))
     const [created] = await tx
       .insert(invitations)

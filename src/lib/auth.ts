@@ -57,7 +57,7 @@ export const auth = betterAuth({
     session: {
       create: {
         // Login novo derruba as outras sessões do usuário.
-        // ponytail: impersonar alguém também derruba a sessão real dele — aceito.
+        // NOTE: impersonar alguém também derruba a sessão real dele — aceito.
         after: async (s, ctx) => {
           const hadSession = ctx?.path.startsWith('/two-factor/') ? Boolean(await getSessionFromCtx(ctx)) : false
           if (!(await opensLoginSession(s.userId, ctx?.path, hadSession))) return

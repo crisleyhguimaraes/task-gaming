@@ -6,7 +6,7 @@ import { convertLeadFor, createOpportunityFor, funnelFor, getOpportunityFor, lis
 import type { AuthCtx } from './roles'
 import { createStageFor, reorderStageFor } from './stages.core'
 import { createTaskFor } from './tasks.core'
-import { addAdmin, makeTenant } from './test-fixtures'
+import { addAdmin, addUser, makeTenant } from './test-fixtures'
 
 type Fixture = Awaited<ReturnType<typeof makeTenant>>
 
@@ -106,6 +106,16 @@ describe('createOpportunityFor', () => {
     expect(await db.select().from(opportunities).where(eq(opportunities.leadId, lead.id))).toHaveLength(0)
   })
 
+  it('usa o relógio injetado como data de criação e de entrada na primeira etapa', async () => {
+    const lead = await newLead(f)
+    const at = new Date('2026-01-10T09:00:00Z')
+
+    const opp = await createOpportunityFor(f.leader, lead.id, deal(), at)
+
+    expect(opp.createdAt).toEqual(at)
+    expect((await stageChangesOf(opp.id))[0]!.changedAt).toEqual(at)
+  })
+
   it('aceita valor zero', async () => {
     const opp = await newOpportunity(f.leader, f, deal({ amountCents: 0 }))
 
@@ -134,6 +144,16 @@ describe('createOpportunityFor', () => {
     await expect(createOpportunityFor(f.leader, lead.id, deal({ ownerId: outsider.userId }))).rejects.toThrow('Responsável não pertence à equipe')
     const opp = await createOpportunityFor(f.leader, lead.id, deal({ ownerId: f.members[1]!.userId }))
     expect(opp.ownerId).toBe(f.members[1]!.userId)
+  })
+
+  it('não atribui a usuário desativado', async () => {
+    const lead = await newLead(f)
+    const deactivated = await addUser(f, { role: 'MEMBER', team: f.team })
+    await db.update(users).set({ banned: true }).where(eq(users.id, deactivated.userId))
+
+    await expect(createOpportunityFor(f.leader, lead.id, deal({ ownerId: deactivated.userId }))).rejects.toThrow('Responsável não pertence à equipe')
+    const opp = await newOpportunity(f.leader)
+    await expect(updateOpportunityFor(f.leader, opp.id, { ...deal(), ownerId: deactivated.userId })).rejects.toThrow('Responsável não pertence à equipe')
   })
 })
 
@@ -312,6 +332,25 @@ describe('moveOpportunityFor', () => {
     expect((await auditFor(opp.id)).at(-1)!.action).toBe('opportunity.lost')
   })
 
+  it('usa o relógio injetado ao fechar e ao registrar a mudança de etapa', async () => {
+    const opp = await newOpportunity(f.leader)
+    const at = new Date('2026-01-15T10:00:00Z')
+
+    await moveOpportunityFor(f.leader, opp.id, await stageId(f, 'Ganha'), {}, at)
+
+    expect((await reload(opp.id)).closedAt).toEqual(at)
+    expect((await stageChangesOf(opp.id)).find((change) => change.fromStageId !== null)!.changedAt).toEqual(at)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])('recusa posição não finita (%s) e nada muda', async (sortOrder) => {
+    const opp = await newOpportunity(f.leader)
+
+    await expect(moveOpportunityFor(f.leader, opp.id, opp.stageId, { sortOrder })).rejects.toThrow('Posição inválida')
+    await expect(moveOpportunityFor(f.leader, opp.id, await stageId(f, 'Qualificado'), { sortOrder })).rejects.toThrow('Posição inválida')
+
+    expect(await reload(opp.id)).toMatchObject({ stageId: opp.stageId, sortOrder: opp.sortOrder })
+  })
+
   it('soltar na mesma etapa só reordena: sem mudança de etapa nem auditoria', async () => {
     const opp = await newOpportunity(f.leader)
 
@@ -408,12 +447,12 @@ describe('listPipelineFor', () => {
     expect(column(cols, 'Novo').opportunities.map((o) => o.title)).toEqual(['Novo 2', 'Novo 1'])
   })
 
-  it('o líder vê só a própria equipe e ignora o filtro de outra equipe', async () => {
+  it('o líder vê só a própria equipe, e pedir outra equipe devolve vazio', async () => {
     const own = await listPipelineFor(t.leader)
-    const forced = await listPipelineFor(t.leader, { teamId: tTeamB.id })
+    const asked = await listPipelineFor(t.leader, { teamId: tTeamB.id })
 
     expect(own.flatMap((c) => c.opportunities).map((o) => o.title)).not.toContain('Da equipe B')
-    expect(forced.flatMap((c) => c.opportunities)).toHaveLength(own.flatMap((c) => c.opportunities).length)
+    expect(asked.flatMap((c) => c.opportunities)).toEqual([])
     expect(column(own, 'Novo').count).toBe(2)
   })
 
@@ -429,6 +468,12 @@ describe('listPipelineFor', () => {
     expect((await listPipelineFor(tOutsider)).flatMap((c) => c.opportunities).map((o) => o.title)).toEqual(['Da equipe B'])
     expect((await listPipelineFor(otherAdmin)).flatMap((c) => c.opportunities).every((o) => o.title !== 'Novo 1')).toBe(true)
     expect((await listPipelineFor(otherAdmin)).every((c) => c.tenantId === other.tenant.id)).toBe(true)
+  })
+
+  it('quem não tem equipe não vê nenhuma oportunidade', async () => {
+    const teamless = await addUser(t, { role: 'MEMBER', team: null })
+
+    expect((await listPipelineFor(teamless)).flatMap((c) => c.opportunities)).toEqual([])
   })
 
   it('o cartão diz se o usuário pode mexer nele', async () => {
@@ -447,10 +492,10 @@ describe('funnelFor', () => {
   let teamBId: string
   let period: { from: Date; to: Date }
 
-  const reachBy = async (opp: { id: string }, ...names: Array<string>) => {
+  const reachBy = async (opp: { id: string }, names: Array<string>, at = new Date()) => {
     for (const name of names) {
       const stage = await stageId(t, name)
-      await moveOpportunityFor(tAdmin, opp.id, stage, name === 'Perdida' ? { lostReason: 'Sem verba' } : {})
+      await moveOpportunityFor(tAdmin, opp.id, stage, name === 'Perdida' ? { lostReason: 'Sem verba' } : {}, at)
     }
   }
 
@@ -459,20 +504,18 @@ describe('funnelFor', () => {
     tAdmin = await addAdmin(t)
     const now = Date.now()
     period = { from: new Date(now - 30 * DAY_MS), to: new Date(now + DAY_MS) }
-    const make = async (title: string) => createOpportunityFor(tAdmin, (await newLead(t)).id, deal({ title }))
+    const make = async (title: string, createdAt = new Date()) => createOpportunityFor(tAdmin, (await newLead(t)).id, deal({ title }), createdAt)
 
-    const a = await make('Alfa')
-    await reachBy(a, 'Qualificado', 'Proposta', 'Ganha')
-    await db.update(opportunities).set({ createdAt: new Date(now - 12 * DAY_MS), closedAt: new Date(now - 2 * DAY_MS) }).where(eq(opportunities.id, a.id))
+    const a = await make('Alfa', new Date(now - 12 * DAY_MS))
+    await reachBy(a, ['Qualificado', 'Proposta', 'Ganha'], new Date(now - 2 * DAY_MS))
     const b = await make('Beta')
-    await reachBy(b, 'Qualificado', 'Perdida')
+    await reachBy(b, ['Qualificado', 'Perdida'])
     const c = await make('Gama')
-    await reachBy(c, 'Perdida')
+    await reachBy(c, ['Perdida'])
     await make('Delta')
     const e = await make('Épsilon')
-    await reachBy(e, 'Proposta')
-    const old = await make('Antiga')
-    await db.update(opportunities).set({ createdAt: new Date(now - 60 * DAY_MS) }).where(eq(opportunities.id, old.id))
+    await reachBy(e, ['Proposta'])
+    await make('Antiga', new Date(now - 60 * DAY_MS))
 
     const [team] = await db.insert(teams).values({ tenantId: t.tenant.id, name: 'B' }).returning()
     teamBId = team!.id
@@ -517,10 +560,10 @@ describe('funnelFor', () => {
     expect(funnel.conversion.every((s) => s.reached === 0 && s.rateFromPrevious === null)).toBe(true)
   })
 
-  it('o líder só enxerga o funil da própria equipe, mesmo pedindo outra', async () => {
+  it('o líder só enxerga o funil da própria equipe, e pedir outra equipe devolve vazio', async () => {
     expect((await funnelFor(t.leader, period)).created).toBe(5)
     expect((await funnelFor(teamBLeader, period)).created).toBe(1)
-    expect((await funnelFor(teamBLeader, { ...period, teamId: t.team.id })).created).toBe(1)
+    expect((await funnelFor(teamBLeader, { ...period, teamId: t.team.id })).created).toBe(0)
   })
 
   it('filtra por equipe para o gestor geral', async () => {

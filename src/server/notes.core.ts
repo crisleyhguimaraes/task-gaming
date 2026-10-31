@@ -5,8 +5,7 @@ import { recordAudit } from './audit.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
 import { canSee, fail } from './roles'
-
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+import type { Tx } from './tx'
 
 export type NoteTarget = { type: 'task' | 'lead' | 'opportunity'; id: string }
 

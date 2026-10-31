@@ -6,8 +6,8 @@ import { auth } from '#/lib/auth'
 import { createInvitationCore } from './invitations.core'
 import type { AuthCtx } from './roles'
 import { ForbiddenError } from './roles'
-import { addAdmin, makeTenant } from './test-fixtures'
-import { createUserFor, deactivateUserCore, reactivateUserCore, updateUserCore } from './users.core'
+import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
+import { createUserFor, deactivateUserCore, listUsersFor, reactivateUserCore, updateUserCore } from './users.core'
 
 let mine: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
@@ -253,3 +253,30 @@ describe('criar usuário e convidar com a capability delegada a quem não é lí
 async function userRowOf(id: string) {
   return (await db.select().from(users).where(eq(users.id, id)))[0]!
 }
+
+describe('listUsersFor', () => {
+  it('líder vê só a própria equipe, admin vê o tenant e quem não lê usuários é recusado', async () => {
+    const f = await makeTenant(1)
+    const teamB = await addTeam(f, 'B')
+    const inB = await addUser(f, { role: 'MEMBER', team: teamB })
+    const idsOf = async (me: AuthCtx) => (await listUsersFor(me)).users.map((u) => u.id)
+
+    try {
+      expect(await idsOf(f.leader)).toEqual(expect.arrayContaining([f.leader.userId, f.members[0]!.userId]))
+      expect(await idsOf(f.leader)).not.toContain(inB.userId)
+      expect(await idsOf(await addAdmin(f))).toContain(inB.userId)
+      await expect(listUsersFor(f.members[0]!)).rejects.toThrow(ForbiddenError)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('usuário sem equipe com permissão de ler usuários vê lista vazia, sem erro', async () => {
+    const teamless = { ...(await addUser(mine, { role: 'MEMBER', team: null })), capabilityOverrides: { 'user.read': true } }
+
+    const result = await listUsersFor(teamless)
+
+    expect(result.users).toEqual([])
+    expect(result.teams.map((t) => t.id)).toContain(mine.team.id)
+  })
+})

@@ -4,10 +4,10 @@ export type CsvColumn<T> = { header: string; value: (row: T) => CsvCell }
 const BOM = '﻿'
 const LINE_BREAK = '\r\n'
 const FORMULA_START = /^[=+\-@\t\r]/
+// Excel pt-BR usa ponto e vírgula como separador de lista; com vírgula abriria tudo numa coluna só.
 const DELIMITER = ';'
 const NEEDS_QUOTES = /[";\r\n]/
 
-// Excel pt-BR usa ponto e vírgula como separador de lista; com vírgula abriria tudo numa coluna só.
 // Excel e Sheets executam texto que começa assim; o apóstrofo o transforma em texto literal.
 const neutralizeFormula = (text: string) => (FORMULA_START.test(text) ? `'${text}` : text)
 

@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Role } from '#/db/schema'
-import { ForbiddenError, capabilities, can, defaultGrants, forbid, requireCan } from './roles'
+import { ForbiddenError, capabilities, can, defaultGrants, forbid, nonDelegableCapabilities, requireCan } from './roles'
 
 const hierarchy: Array<Role> = ['MEMBER', 'TEAM_LEADER', 'TENANT_ADMIN', 'SUPER_ADMIN']
 const as = (role: Role) => ({ role })
 
 describe('capabilities', () => {
-  it('cada papel superior herda tudo o que o inferior pode, exceto o que é só da plataforma', () => {
-    for (const cap of capabilities.filter((c) => c !== 'tenant.manage')) {
-      hierarchy.forEach((role, i) => {
-        if (can(as(role), cap)) expect(hierarchy.slice(i).every((upper) => can(as(upper), cap)), `${cap} perdido acima de ${role}`).toBe(true)
-      })
+  it('quem pode uma capability forma o topo da hierarquia: cada papel superior herda o que o inferior pode', () => {
+    for (const cap of capabilities) {
+      const granted = hierarchy.filter((role) => can(as(role), cap))
+
+      expect(granted, cap).toEqual(hierarchy.slice(hierarchy.length - granted.length))
     }
   })
 
@@ -57,6 +57,19 @@ describe('overrides por tenant', () => {
 
     expect(can(leader, 'user.create')).toBe(false)
     expect(can(leader, 'invitation.manage')).toBe(true)
+  })
+})
+
+describe('capabilities não delegáveis', () => {
+  it.each(nonDelegableCapabilities)('override de %s é ignorado, mesmo gravado: vale só o padrão de fábrica', (capability) => {
+    for (const role of ['TEAM_LEADER', 'MEMBER'] as const) {
+      expect(can({ role, capabilityOverrides: { [capability]: true } }, capability)).toBe(can(as(role), capability))
+      expect(can({ role, capabilityOverrides: { [capability]: false } }, capability)).toBe(can(as(role), capability))
+    }
+  })
+
+  it('cobrem tudo o que vale para o tenant inteiro', () => {
+    expect([...nonDelegableCapabilities].sort()).toEqual(['audit.read', 'permissions.manage', 'pipeline.configure', 'team.manage', 'tenant.configure', 'tenant.manage'])
   })
 })
 

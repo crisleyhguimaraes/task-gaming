@@ -4,7 +4,7 @@ import { db } from '#/db'
 import { challenges, leads, pipelineStages, tenants } from '#/db/schema'
 import type { AuthCtx } from './roles'
 import { createTeamFor, deleteTeamFor } from './teams.core'
-import { addAdmin, makeTenant } from './test-fixtures'
+import { addAdmin, addUser, makeTenant } from './test-fixtures'
 import { createTenantFor } from './tenants.core'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
@@ -43,14 +43,21 @@ describe('excluir equipe', () => {
     const team = await createTeamFor(admin, 'Comercial')
     await db.insert(leads).values({ tenantId: f.tenant.id, teamId: team.id, name: 'Lead' })
 
-    await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('tarefas, desafios ou leads')
+    await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('Equipe tem membros, tarefas, desafios ou leads')
   })
 
   it('recusa equipe com desafios', async () => {
     const team = await createTeamFor(admin, 'Com desafio')
     await db.insert(challenges).values({ tenantId: f.tenant.id, teamId: team.id, title: 'Rápido', estimatedSeconds: 60 })
 
-    await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('tarefas, desafios ou leads')
+    await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('Equipe tem membros, tarefas, desafios ou leads')
+  })
+
+  it('recusa equipe com membros, citando-os na mensagem', async () => {
+    const team = await createTeamFor(admin, 'Com gente')
+    await addUser(f, { role: 'MEMBER', team })
+
+    await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('Equipe tem membros, tarefas, desafios ou leads')
   })
 
   it('exclui equipe vazia', async () => {

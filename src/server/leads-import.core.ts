@@ -5,11 +5,11 @@ import { diffFields } from '#/lib/audit'
 import type { ParsedLead, RawLeadRow } from '#/lib/leads'
 import { maxImportRows, parseLeadRow, takeLeastLoaded } from '#/lib/leads'
 import { recordAudit } from './audit.core'
-import type { Reader } from './leads.core'
 import { teamLoads } from './leads.core'
 import type { AuthCtx } from './roles'
 import { canManage, fail, forbid, requireCan } from './roles'
 import { assertTeamInTenant } from './teams.core'
+import type { Reader } from './tx'
 
 export type ImportRequest = { teamId: string; rows: Array<RawLeadRow> }
 export type ImportOptions = ImportRequest & { onDuplicate: 'skip' | 'update'; distribute: 'none' | 'least_loaded' }

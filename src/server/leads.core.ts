@@ -8,10 +8,10 @@ import { leadsPageSize, parseLeadRow, poolOwnerFilter, takeLeastLoaded } from '#
 import { recordAudit } from './audit.core'
 import { listNotesFor } from './notes.core'
 import type { AuthCtx } from './roles'
-import { canManage, canSee, fail, forbid, isAdmin } from './roles'
+import { canManage, canSee, fail, forbid } from './roles'
+import { activeMembersOf, assertMember, inTenantTeams, inTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
-
-export type Reader = Pick<typeof db, 'select'>
+import type { Reader } from './tx'
 
 const maxDuplicateCandidates = 5
 const maxPageSize = 100
@@ -34,14 +34,6 @@ function parseOrFail(raw: RawLeadRow) {
   const parsed = parseLeadRow(raw)
   if (!parsed.ok) fail(Object.values(parsed.errors).join('; '))
   return parsed.lead
-}
-
-async function assertOwnerInTeam(tx: Reader, tenantId: string, ownerId: string, teamId: string) {
-  const [owner] = await tx
-    .select({ id: users.id })
-    .from(users)
-    .where(and(eq(users.id, ownerId), eq(users.tenantId, tenantId), eq(users.teamId, teamId), eq(users.banned, false)))
-  if (!owner) fail('Responsável não pertence à equipe')
 }
 
 export type DuplicateCandidate = {
@@ -83,7 +75,7 @@ export async function createLeadFor(me: AuthCtx, data: NewLead, { force = false 
   if (ownerId && ownerId !== me.userId && !canManage(me, data)) forbid()
   return db.transaction(async (tx) => {
     await assertTeamInTenant(tx, me.tenantId, data.teamId)
-    if (ownerId) await assertOwnerInTeam(tx, me.tenantId, ownerId, data.teamId)
+    if (ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: data.teamId })
     if (!force) {
       const duplicates = await findDuplicates(tx, me, parsed)
       if (duplicates.length > 0) return { created: false, duplicates }
@@ -137,12 +129,9 @@ function searchFilter(search: string | undefined) {
 }
 
 export async function listLeadsFor(me: AuthCtx, filters: LeadFilters) {
-  if (!isAdmin(me) && !me.teamId) return { leads: [], total: 0 }
   const limit = Math.min(filters.limit ?? leadsPageSize, maxPageSize)
   const where = and(
-    eq(leads.tenantId, me.tenantId),
-    isAdmin(me) ? undefined : eq(leads.teamId, me.teamId!),
-    filters.teamId ? eq(leads.teamId, filters.teamId) : undefined,
+    inTenantTeams(leads, me, { only: filters.teamId }),
     filters.status ? eq(leads.status, filters.status) : undefined,
     filters.source ? eq(leads.source, filters.source) : undefined,
     ownerFilter(filters.ownerId),
@@ -226,7 +215,7 @@ export async function assignLeadFor(me: AuthCtx, leadId: string, ownerId: string
   await db.transaction(async (tx) => {
     const lead = await loadLead(tx, me, leadId)
     if (!canManage(me, lead)) forbid()
-    await assertOwnerInTeam(tx, me.tenantId, ownerId, lead.teamId)
+    await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: lead.teamId })
     if (lead.ownerId === ownerId) return
     const [updated] = await tx.update(leads).set({ ownerId }).where(eq(leads.id, lead.id)).returning()
     await recordAudit(tx, me, { action: 'lead.assigned', entityType: 'lead', entityId: lead.id, changes: diffFields(lead, updated!, ['ownerId']) })
@@ -234,16 +223,15 @@ export async function assignLeadFor(me: AuthCtx, leadId: string, ownerId: string
 }
 
 export async function leadOptionsFor(me: AuthCtx) {
-  if (!isAdmin(me) && !me.teamId) return { teams: [], members: [] }
   const teamList = await db
     .select({ id: teams.id, name: teams.name })
     .from(teams)
-    .where(and(eq(teams.tenantId, me.tenantId), isAdmin(me) ? undefined : eq(teams.id, me.teamId!)))
+    .where(and(eq(teams.tenantId, me.tenantId), inTeams(teams.id, me)))
     .orderBy(asc(teams.name))
   const members = await db
     .select({ id: users.id, name: users.name, teamId: users.teamId })
     .from(users)
-    .where(and(eq(users.tenantId, me.tenantId), inArray(users.teamId, teamList.map((t) => t.id)), eq(users.banned, false)))
+    .where(activeMembersOf(me.tenantId, teamList.map((t) => t.id)))
     .orderBy(asc(users.name))
   return { teams: teamList, members }
 }
@@ -257,7 +245,7 @@ export async function teamLoads(tx: Reader, tenantId: string, teamId: string): P
     .select({ id: users.id, name: users.name, open: count(opportunities.id) })
     .from(users)
     .leftJoin(opportunities, and(eq(opportunities.ownerId, users.id), inArray(opportunities.stageId, openStageIds)))
-    .where(and(eq(users.tenantId, tenantId), eq(users.teamId, teamId), eq(users.banned, false)))
+    .where(activeMembersOf(tenantId, [teamId]))
     .groupBy(users.id, users.name)
     .orderBy(asc(users.id))
 }

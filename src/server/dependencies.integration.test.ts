@@ -1,7 +1,8 @@
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { tasks, teams } from '#/db/schema'
-import { addDependencyFor, getDependenciesFor } from './dependencies.core'
+import { addDependencyFor, blockedSet, getDependenciesFor } from './dependencies.core'
 import { makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
@@ -55,5 +56,24 @@ describe('getDependenciesFor', () => {
     const own = await newTask(f.team.id, 'Da equipe')
 
     await expect(getDependenciesFor(f.members[0]!, own.id)).resolves.toMatchObject({ deps: [] })
+  })
+})
+
+describe('blockedSet', () => {
+  it('marca só a tarefa que depende de outra ainda não concluída', async () => {
+    const [free, blocked, dependent] = [await newTask(f.team.id, 'Livre'), await newTask(f.team.id, 'Bloqueada'), await newTask(f.team.id, 'Depende de concluída')]
+    const open = await newTask(f.team.id, 'Aberta')
+    const done = await newTask(f.team.id, 'Concluída')
+    await db.update(tasks).set({ status: 'finished' }).where(eq(tasks.id, done.id))
+    await addDependencyFor(f.leader, { taskId: blocked.id, dependsOnTaskId: open.id })
+    await addDependencyFor(f.leader, { taskId: dependent.id, dependsOnTaskId: done.id })
+
+    const blockedIds = await blockedSet(db, [free.id, blocked.id, dependent.id])
+
+    expect([...blockedIds]).toEqual([blocked.id])
+  })
+
+  it('lista vazia não consulta nada', async () => {
+    expect(await blockedSet(db, [])).toEqual(new Set())
   })
 })

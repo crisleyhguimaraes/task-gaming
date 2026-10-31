@@ -4,6 +4,7 @@ import { taskDependencies, tasks } from '#/db/schema'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail, forbid } from './roles'
+import type { Reader } from './tx'
 
 /** true se, seguindo "depends_on" a partir de `from`, chegamos em `target`. */
 export function reaches(edges: Array<{ taskId: string; dependsOnTaskId: string }>, from: string, target: string) {
@@ -21,18 +22,20 @@ export function reaches(edges: Array<{ taskId: string; dependsOnTaskId: string }
   return false
 }
 
-/** ids de tarefas bloqueadas (têm dependência não concluída) dentro de `taskIds`. */
-export async function blockedSet(taskIds: Array<string>) {
-  if (taskIds.length === 0) return new Set<string>()
-  const rows = await db
-    .select({ taskId: taskDependencies.taskId })
+/** A regra de "bloqueada": dependência que ainda não foi concluída. Quem chama garante que `taskIds` são do próprio tenant. */
+export function openBlockers(tx: Reader, taskIds: Array<string>) {
+  return tx
+    .select({ taskId: taskDependencies.taskId, id: tasks.id, title: tasks.title })
     .from(taskDependencies)
     .innerJoin(tasks, eq(tasks.id, taskDependencies.dependsOnTaskId))
     .where(and(inArray(taskDependencies.taskId, taskIds), ne(tasks.status, 'finished')))
-  return new Set(rows.map((r) => r.taskId))
 }
 
-export const isBlocked = async (taskId: string) => (await blockedSet([taskId])).has(taskId)
+/** ids de tarefas bloqueadas dentro de `taskIds`. */
+export async function blockedSet(tx: Reader, taskIds: Array<string>) {
+  if (taskIds.length === 0) return new Set<string>()
+  return new Set((await openBlockers(tx, taskIds)).map((r) => r.taskId))
+}
 
 export async function addDependencyFor(me: AuthCtx, data: { taskId: string; dependsOnTaskId: string }) {
   if (data.taskId === data.dependsOnTaskId) fail('Uma tarefa não depende de si mesma')

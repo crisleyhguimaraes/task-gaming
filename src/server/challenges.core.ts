@@ -4,6 +4,7 @@ import { challenges, tasks, teams, users } from '#/db/schema'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { canManage, fail, forbid, isAdmin } from './roles'
+import { inTeams } from './scope'
 
 export const validAttempt = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
 
@@ -16,7 +17,7 @@ export async function listChallengesFor(me: AuthCtx, includeArchived = false) {
     .where(
       and(
         eq(challenges.tenantId, me.tenantId),
-        isAdmin(me) ? undefined : eq(challenges.teamId, me.teamId ?? ''),
+        inTeams(challenges.teamId, me),
         includeArchived ? undefined : isNull(challenges.archivedAt),
       ),
     )

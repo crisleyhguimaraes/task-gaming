@@ -1,18 +1,18 @@
-import { and, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Role } from '#/db/schema'
-import { sessions, taskTimeLogs, tasks, users } from '#/db/schema'
+import { sessions, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { fail, forbid, isAdmin, requireCan } from './roles'
+import { inTenantTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
 import { closeLogDuration } from './time'
+import type { Reader } from './tx'
 
 export type AssignableRole = Exclude<Role, 'SUPER_ADMIN'>
-
-type Reader = Pick<typeof db, 'select'>
 
 /** Quem não é admin só gerencia membros comuns da própria equipe: capability delegada não pode virar escalada de privilégio. */
 function assertWithinScope(me: AuthCtx, target: Pick<typeof users.$inferSelect, 'role' | 'teamId'>) {
@@ -25,6 +25,18 @@ async function findUserInScope(tx: Reader, me: AuthCtx, userId: string) {
   if (!u) fail('Usuário não encontrado')
   assertWithinScope(me, u)
   return u
+}
+
+export async function listUsersFor(me: AuthCtx) {
+  requireCan(me, 'user.read')
+  const list = await db
+    .select({ id: users.id, name: users.name, email: users.email, role: users.role, banned: users.banned, teamId: users.teamId, teamName: teams.name })
+    .from(users)
+    .leftJoin(teams, eq(teams.id, users.teamId))
+    .where(and(inTenantTeams(users, me), ne(users.role, 'SUPER_ADMIN')))
+    .orderBy(asc(users.name))
+  const teamList = await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
+  return { users: list, teams: teamList }
 }
 
 export async function releaseOpenWork(tx: Pick<typeof db, 'select' | 'update'>, userId: string) {
