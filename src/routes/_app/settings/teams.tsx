@@ -2,8 +2,10 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { Plus, Trash2 } from 'lucide-react'
 import { useAct } from '#/components/useAttempt'
 import { createTeam, deleteTeam, listTeams } from '#/server/teams'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/_app/settings/teams')({
+  staticData: { pageWidth: 'narrow' },
   loader: () => listTeams(),
   component: Teams,
 })
@@ -14,10 +16,7 @@ function Teams() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-sm text-neutral-400">Configurações</p>
-        <h1 className="text-2xl font-bold tracking-tight">Equipes</h1>
-      </div>
+      <PageHeader title="Equipes" />
       <form
         onSubmit={(e) => {
           e.preventDefault()

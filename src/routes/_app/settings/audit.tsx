@@ -8,6 +8,7 @@ import { auditActionLabels, auditActions } from '#/lib/audit'
 import { downloadCsv } from '#/lib/download-csv'
 import { getAuditActors, listAuditPage } from '#/server/audit-view'
 import { exportAuditCsv } from '#/server/exports'
+import { PageHeader } from '#/components/PageHeader'
 
 const searchSchema = z.object({
   action: z.enum(auditActions).optional(),
@@ -27,6 +28,7 @@ function toFilters({ from, to, ...rest }: Search) {
 }
 
 export const Route = createFileRoute('/_app/settings/audit')({
+  staticData: { pageWidth: 'wide' },
   validateSearch: searchSchema,
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -69,13 +71,9 @@ function Audit() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-sm text-neutral-400">Configurações</p>
-          <h1 className="text-2xl font-bold tracking-tight">Auditoria</h1>
-        </div>
+      <PageHeader title="Auditoria" subtitle="Quem fez o quê, em ordem cronológica.">
         <button type="button" onClick={exportCsv} className="btn-ghost"><Download className="h-4 w-4" /> Exportar CSV</button>
-      </div>
+      </PageHeader>
 
       <form
         key={JSON.stringify(search)}

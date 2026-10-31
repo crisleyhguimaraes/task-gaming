@@ -5,8 +5,10 @@ import { useAct } from '#/components/useAttempt'
 import { appRoute } from '#/lib/app-route'
 import { archivePipeline, createPipeline, listPipelines, renamePipeline, restorePipeline } from '#/server/pipelines'
 import { can } from '#/server/roles'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/_app/settings/pipeline/')({
+  staticData: { pageWidth: 'narrow' },
   loader: () => listPipelines(),
   component: PipelineList,
 })
@@ -20,11 +22,7 @@ function PipelineList() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-sm text-neutral-400">Configurações</p>
-        <h1 className="text-2xl font-bold tracking-tight">Pipelines</h1>
-        <p className="mt-1 text-sm text-neutral-500">Cada pipeline tem as próprias etapas. A equipe sem vínculo usa o pipeline padrão; ao vincular, só os vinculados valem. Os vínculos se editam no detalhe da equipe.</p>
-      </div>
+      <PageHeader title="Pipelines" subtitle="Cada pipeline tem as próprias etapas. A equipe sem vínculo usa o pipeline padrão; ao vincular, só os vinculados valem. Os vínculos se editam no detalhe da equipe." />
 
       <form
         onSubmit={(e) => {

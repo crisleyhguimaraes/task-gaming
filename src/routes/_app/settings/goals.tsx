@@ -8,8 +8,10 @@ import { listGoals } from '#/server/goals'
 import { can } from '#/server/roles'
 import { listScoringRules } from '#/server/scoring-rules'
 import { getTenantSettings } from '#/server/tenant-settings'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/_app/settings/goals')({
+  staticData: { pageWidth: 'wide' },
   loader: async ({ context: { me } }) => {
     const [goals, scoringRules, general] = await Promise.all([
       can(me, 'goal.configure') ? listGoals() : [],
@@ -40,21 +42,15 @@ function GoalsAndScoring() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-sm text-neutral-400">Configurações</p>
-        <h1 className="text-2xl font-bold tracking-tight">Metas e pontuação</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Equipe sem vínculo usa o padrão do tenant. Vincular uma equipe a uma meta ou pontuação substitui o padrão para ela, daqui para frente.
-        </p>
-      </div>
-      <div className="flex gap-1 rounded-xl border border-neutral-800 p-1 text-xs font-medium">
+      <PageHeader title="Metas e pontuação" subtitle="Equipe sem vínculo usa o padrão do tenant. Vincular uma equipe a uma meta ou pontuação substitui o padrão para ela, daqui para frente." />
+      <div className="inline-flex gap-1 rounded-xl border border-neutral-800 bg-neutral-900 p-1 text-xs font-medium">
         {allowedTabs.map(({ id, label }) => (
           <button
             key={id}
             type="button"
             aria-pressed={id === active}
             onClick={() => setSelected(id)}
-            className={`flex-1 rounded-lg py-1.5 ${id === active ? 'bg-neutral-800 text-neutral-50' : 'text-neutral-400'}`}
+            className={`rounded-lg px-4 py-1.5 ${id === active ? 'bg-brand-soft text-brand-ink' : 'text-neutral-400 hover:text-neutral-50'}`}
           >
             {label}
           </button>

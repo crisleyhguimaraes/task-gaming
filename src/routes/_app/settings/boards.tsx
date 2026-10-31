@@ -6,8 +6,10 @@ import { appRoute } from '#/lib/app-route'
 import { archiveBoard, listBoards, renameBoard, restoreBoard } from '#/server/boards'
 import { can } from '#/server/roles'
 import { getTaskFormOptions } from '#/server/tasks'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/_app/settings/boards')({
+  staticData: { pageWidth: 'narrow' },
   loader: async () => {
     const [boards, options] = await Promise.all([listBoards(), getTaskFormOptions()])
     return { boards, teams: options.teams }
@@ -24,11 +26,7 @@ function Boards() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-sm text-neutral-400">Configurações</p>
-        <h1 className="text-2xl font-bold tracking-tight">Boards</h1>
-        <p className="mt-1 text-sm text-neutral-500">O board agrupa tarefas; as colunas continuam sendo o status. Só as equipes vinculadas criam tarefas nele. Os vínculos se editam no detalhe da equipe.</p>
-      </div>
+      <PageHeader title="Boards" subtitle="O board agrupa tarefas; as colunas continuam sendo o status. Só as equipes vinculadas criam tarefas nele. Os vínculos se editam no detalhe da equipe." />
 
       <NewBoardForm me={me} teams={teams} act={act} />
       {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}

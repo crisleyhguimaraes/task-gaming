@@ -30,9 +30,9 @@ export function CatalogPanel<T extends CatalogItem>({ noun, createLabel, items, 
         <button type="button" onClick={() => setEditing(NEW)} className="btn-primary"><Plus className="h-4 w-4" /> {createLabel}</button>
       )}
       {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
-      <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
+      <ul className="grid items-start gap-4 xl:grid-cols-2">
         {items.map((item) => (
-          <li key={item.id} className="space-y-2 px-4 py-3">
+          <li key={item.id} className="card space-y-2">
             {editing === item.id ? (
               renderForm(item, close)
             ) : (
@@ -63,11 +63,11 @@ function CatalogRow({ item, noun, summary, onEdit, onDelete }: RowProps) {
           {item.isDefault && <span className="rounded-full border border-xp-500/40 px-2 py-0.5 text-xs text-xp-400">Padrão</span>}
         </div>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={onEdit} aria-label={`Editar ${item.name}`} title="Editar" className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50">
+          <button type="button" onClick={onEdit} aria-label={`Editar ${item.name}`} title="Editar" className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-50">
             <Pencil className="h-4 w-4" />
           </button>
           {!item.isDefault && (
-            <button type="button" onClick={confirmDelete} aria-label={`Excluir ${item.name}`} title="Excluir" className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-rose-400">
+            <button type="button" onClick={confirmDelete} aria-label={`Excluir ${item.name}`} title="Excluir" className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-800 hover:text-rose-400">
               <Trash2 className="h-4 w-4" />
             </button>
           )}

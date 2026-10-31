@@ -12,6 +12,7 @@ import { can } from '#/server/roles'
 import { getTeamDetail, updateTeam } from '#/server/teams'
 
 export const Route = createFileRoute('/_app/teams/$teamId')({
+  staticData: { pageWidth: 'wide' },
   loader: ({ params }) => getTeamDetail({ data: { teamId: params.teamId } }),
   component: TeamDetail,
 })

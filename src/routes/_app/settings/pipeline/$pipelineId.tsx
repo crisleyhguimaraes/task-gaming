@@ -8,6 +8,7 @@ import { createStage, deleteStage, listStages, reorderStage, updateStage } from 
 import { listPipelines } from '#/server/pipelines'
 
 export const Route = createFileRoute('/_app/settings/pipeline/$pipelineId')({
+  staticData: { pageWidth: 'narrow' },
   loader: async ({ params }) => {
     const [pipelines, stages] = await Promise.all([listPipelines(), listStages({ data: { pipelineId: params.pipelineId } })])
     return { pipeline: pipelines.find((p) => p.id === params.pipelineId) ?? null, stages }

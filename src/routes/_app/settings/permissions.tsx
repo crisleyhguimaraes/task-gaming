@@ -5,8 +5,10 @@ import { teamRoles } from '#/lib/access'
 import { getCapabilityOverrides, setCapability } from '#/server/permissions'
 import type { Capability } from '#/server/roles'
 import { capabilities, defaultGrants, nonDelegableCapabilities, teamRoleCan } from '#/server/roles'
+import { PageHeader } from '#/components/PageHeader'
 
 export const Route = createFileRoute('/_app/settings/permissions')({
+  staticData: { pageWidth: 'narrow' },
   loader: () => getCapabilityOverrides(),
   component: Permissions,
 })
@@ -49,11 +51,7 @@ function Permissions() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <p className="text-sm text-neutral-400">Configurações</p>
-        <h1 className="text-2xl font-bold tracking-tight">Permissões</h1>
-        <p className="mt-1 text-sm text-neutral-500">O que a pessoa pode fazer em cada equipe, conforme o papel dela naquela equipe. Quem é líder numa equipe e membro em outra tem os poderes de cada papel só na respectiva equipe. Gestores gerais sempre mantêm o padrão, para ninguém trancar o próprio acesso.</p>
-      </div>
+      <PageHeader title="Permissões" subtitle="O que a pessoa pode fazer em cada equipe, conforme o papel dela naquela equipe. Quem é líder numa equipe e membro em outra tem os poderes de cada papel só na respectiva equipe. Gestores gerais sempre mantêm o padrão, para ninguém trancar o próprio acesso." />
       {error && <p className="text-sm text-rose-400">{error}</p>}
       <div className="overflow-x-auto rounded-2xl border border-neutral-800">
         <table className="w-full text-sm">
