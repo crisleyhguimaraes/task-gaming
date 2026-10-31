@@ -66,9 +66,9 @@ function Body({ s, onClose }: { s: CompletionSummary; onClose: () => void }) {
         <div>
           <Row label="Pontuação base" value={`+${s.basePoints} pts`} />
           <Row
-            label={<><Zap className="h-4 w-4 text-emerald-400" /> Ritmo ({pace}% do estimado)</>}
+            label={<><Zap className="h-4 w-4 text-xp-400" /> Ritmo ({pace}% do estimado)</>}
             value={s.paceBonus > 0 ? `+${s.paceBonus} pts` : s.overtimePenalty < 0 ? `${s.overtimePenalty} pts` : '0 pts'}
-            tone={s.paceBonus > 0 ? 'text-emerald-400' : s.overtimePenalty < 0 ? 'text-rose-400' : ''}
+            tone={s.paceBonus > 0 ? 'text-xp-400' : s.overtimePenalty < 0 ? 'text-rose-400' : ''}
           />
           {s.pausePenalty < 0 && (
             <Row label={<><Clock className="h-4 w-4 text-rose-400" /> Muito tempo pausada</>} value={`${s.pausePenalty} pts`} tone="text-rose-400" />

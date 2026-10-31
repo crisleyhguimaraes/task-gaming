@@ -46,6 +46,7 @@ describe('contraste dos tokens', () => {
         ['xp-400', 'xp-950'],
         ['rose-400', 'rose-950'],
         ['amber-300', 'amber-950'],
+        ['amber-400', 'neutral-900'],
       ]),
     ).toEqual([])
   })
