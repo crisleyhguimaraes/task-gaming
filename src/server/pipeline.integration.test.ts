@@ -4,6 +4,7 @@ import { db } from '#/db'
 import { auditEvents, leads, opportunities, opportunityStageChanges, pipelineStages, teams, users } from '#/db/schema'
 import { convertLeadFor, createOpportunityFor, funnelFor, getOpportunityFor, listPipelineFor, moveOpportunityFor, pipelineFiltersFor, updateOpportunityFor } from './pipeline.core'
 import type { AuthCtx } from './roles'
+import { linkTeamToPipelineFor, archivePipelineFor, createPipelineFor } from './pipelines.core'
 import { createStageFor, reorderStageFor } from './stages.core'
 import { createTaskFor } from './tasks.core'
 import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
@@ -33,7 +34,7 @@ async function newLead(tenant: Fixture, opts: { teamId?: string; ownerId?: strin
 }
 
 const stageId = async (tenant: Fixture, name: string) => {
-  const [stage] = await db.select().from(pipelineStages).where(and(eq(pipelineStages.tenantId, tenant.tenant.id), eq(pipelineStages.name, name)))
+  const [stage] = await db.select().from(pipelineStages).where(and(eq(pipelineStages.pipelineId, tenant.pipeline.id), eq(pipelineStages.name, name)))
   return stage!.id
 }
 
@@ -82,7 +83,7 @@ describe('createOpportunityFor', () => {
     const solo = await makeTenant(0)
     try {
       const soloAdmin = await addAdmin(solo)
-      const first = await createStageFor(soloAdmin, { name: 'Prospecção', kind: 'open', probability: 5 })
+      const first = await createStageFor(soloAdmin, { pipelineId: solo.pipeline.id, name: 'Prospecção', kind: 'open', probability: 5 })
       await reorderStageFor(soloAdmin, first.id, 0)
       const lead = await newLead(solo)
 
@@ -429,7 +430,7 @@ describe('listPipelineFor', () => {
   const column = (cols: Awaited<ReturnType<typeof listPipelineFor>>, name: string) => cols.find((c) => c.name === name)!
 
   it('totaliza por etapa: contagem, soma e ponderado pela probabilidade, calculados à mão', async () => {
-    const cols = await listPipelineFor(tAdmin)
+    const cols = await listPipelineFor(tAdmin, { pipelineId: t.pipeline.id })
 
     expect(cols.map((c) => c.name)).toEqual(['Novo', 'Qualificado', 'Proposta', 'Negociação', 'Ganha', 'Perdida'])
     expect(column(cols, 'Novo')).toMatchObject({ count: 3, amountCents: 40_050, weightedCents: 4_005 })
@@ -439,14 +440,14 @@ describe('listPipelineFor', () => {
   })
 
   it('ordena os cartões da coluna pela posição', async () => {
-    const cols = await listPipelineFor(t.leader)
+    const cols = await listPipelineFor(t.leader, { pipelineId: t.pipeline.id })
 
     expect(column(cols, 'Novo').opportunities.map((o) => o.title)).toEqual(['Novo 2', 'Novo 1'])
   })
 
   it('o líder vê só a própria equipe, e pedir outra equipe devolve vazio', async () => {
-    const own = await listPipelineFor(t.leader)
-    const asked = await listPipelineFor(t.leader, { teamId: tTeamB.id })
+    const own = await listPipelineFor(t.leader, { pipelineId: t.pipeline.id })
+    const asked = await listPipelineFor(t.leader, { pipelineId: t.pipeline.id, teamId: tTeamB.id })
 
     expect(own.flatMap((c) => c.opportunities).map((o) => o.title)).not.toContain('Da equipe B')
     expect(asked.flatMap((c) => c.opportunities)).toEqual([])
@@ -454,27 +455,27 @@ describe('listPipelineFor', () => {
   })
 
   it('o gestor geral filtra por equipe e por dono', async () => {
-    const teamBOnly = await listPipelineFor(tAdmin, { teamId: tTeamB.id })
-    const ofA = await listPipelineFor(tAdmin, { ownerId: t.members[0]!.userId })
+    const teamBOnly = await listPipelineFor(tAdmin, { pipelineId: t.pipeline.id, teamId: tTeamB.id })
+    const ofA = await listPipelineFor(tAdmin, { pipelineId: t.pipeline.id, ownerId: t.members[0]!.userId })
 
     expect(teamBOnly.flatMap((c) => c.opportunities).map((o) => o.title)).toEqual(['Da equipe B'])
     expect(ofA.flatMap((c) => c.opportunities).map((o) => o.title).sort()).toEqual(['Novo 1', 'Proposta 1'])
   })
 
   it('quem é de outra equipe só vê a sua e outro tenant não vê nada', async () => {
-    expect((await listPipelineFor(tOutsider)).flatMap((c) => c.opportunities).map((o) => o.title)).toEqual(['Da equipe B'])
-    expect((await listPipelineFor(otherAdmin)).flatMap((c) => c.opportunities).every((o) => o.title !== 'Novo 1')).toBe(true)
-    expect((await listPipelineFor(otherAdmin)).every((c) => c.tenantId === other.tenant.id)).toBe(true)
+    expect((await listPipelineFor(tOutsider, { pipelineId: t.pipeline.id })).flatMap((c) => c.opportunities).map((o) => o.title)).toEqual(['Da equipe B'])
+    expect((await listPipelineFor(otherAdmin, { pipelineId: other.pipeline.id })).flatMap((c) => c.opportunities).every((o) => o.title !== 'Novo 1')).toBe(true)
+    expect((await listPipelineFor(otherAdmin, { pipelineId: other.pipeline.id })).every((c) => c.tenantId === other.tenant.id)).toBe(true)
   })
 
   it('quem não tem equipe não vê nenhuma oportunidade', async () => {
     const teamless = await addUser(t, { role: 'MEMBER', team: null })
 
-    expect((await listPipelineFor(teamless)).flatMap((c) => c.opportunities)).toEqual([])
+    expect((await listPipelineFor(teamless, { pipelineId: t.pipeline.id })).flatMap((c) => c.opportunities)).toEqual([])
   })
 
   it('o cartão diz se o usuário pode mexer nele', async () => {
-    const asMember = await listPipelineFor(t.members[1]!)
+    const asMember = await listPipelineFor(t.members[1]!, { pipelineId: t.pipeline.id })
 
     const byTitle = Object.fromEntries(asMember.flatMap((c) => c.opportunities).map((o) => [o.title, o.canWrite]))
     expect(byTitle['Novo 2']).toBe(true)
@@ -487,7 +488,7 @@ describe('funnelFor', () => {
   let tAdmin: AuthCtx
   let teamBLeader: AuthCtx
   let teamBId: string
-  let period: { from: Date; to: Date }
+  let period: { from: Date; to: Date; pipelineId: string }
 
   const reachBy = async (opp: { id: string }, names: Array<string>, at = new Date()) => {
     for (const name of names) {
@@ -500,7 +501,7 @@ describe('funnelFor', () => {
     t = await makeTenant(0)
     tAdmin = await addAdmin(t)
     const now = Date.now()
-    period = { from: new Date(now - 30 * DAY_MS), to: new Date(now + DAY_MS) }
+    period = { from: new Date(now - 30 * DAY_MS), to: new Date(now + DAY_MS), pipelineId: t.pipeline.id }
     const make = async (title: string, createdAt = new Date()) => createOpportunityFor(tAdmin, (await newLead(t)).id, deal({ title }), createdAt)
 
     const a = await make('Alfa', new Date(now - 12 * DAY_MS))
@@ -541,7 +542,7 @@ describe('funnelFor', () => {
   })
 
   it('o período recorta a coorte e os fechamentos', async () => {
-    const recent = await funnelFor(tAdmin, { from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + DAY_MS) })
+    const recent = await funnelFor(tAdmin, { from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + DAY_MS), pipelineId: t.pipeline.id })
 
     expect(recent.created).toBe(5)
     expect(recent).toMatchObject({ won: 0, lost: 2 })
@@ -549,7 +550,7 @@ describe('funnelFor', () => {
   })
 
   it('sem oportunidades tudo é zero ou nulo, sem dividir por zero', async () => {
-    const funnel = await funnelFor(otherAdmin, period)
+    const funnel = await funnelFor(otherAdmin, { ...period, pipelineId: other.pipeline.id })
 
     expect(funnel).toMatchObject({ created: 0, won: 0, lost: 0, winRate: null, averageCycleDays: null })
     expect(funnel.conversion.every((s) => s.reached === 0 && s.rateFromPrevious === null)).toBe(true)
@@ -566,6 +567,136 @@ describe('funnelFor', () => {
     expect((await funnelFor(tAdmin, { ...period, teamId: t.team.id })).created).toBe(5)
   })
 
+})
+
+describe('oportunidades por pipeline', () => {
+  let t: Fixture
+  let tAdmin: AuthCtx
+  let funnelB: { id: string }
+  let funnelC: { id: string }
+  let linkedTeam: { id: string }
+
+  const firstOpenOf = async (pipelineId: string) =>
+    (await db.select().from(pipelineStages).where(and(eq(pipelineStages.pipelineId, pipelineId), eq(pipelineStages.kind, 'open'))).orderBy(asc(pipelineStages.sortOrder)))[0]!
+
+  const dealIn = async (pipelineId: string, teamId = t.team.id) => createOpportunityFor(tAdmin, (await newLead(t, { teamId })).id, deal({ pipelineId }))
+
+  beforeAll(async () => {
+    t = await makeTenant(1)
+    tAdmin = await addAdmin(t)
+    funnelB = await createPipelineFor(tAdmin, 'Funil B')
+    funnelC = await createPipelineFor(tAdmin, 'Funil C')
+    linkedTeam = await addTeam(t, 'Equipe vinculada')
+    await linkTeamToPipelineFor(tAdmin, funnelB.id, linkedTeam.id)
+  })
+  afterAll(() => t.cleanup())
+
+  it('equipe sem vínculo tem um só efetivo, o padrão, e a oportunidade nasce na primeira etapa aberta dele', async () => {
+    const opp = await createOpportunityFor(tAdmin, (await newLead(t)).id, deal())
+
+    expect(opp.pipelineId).toBe(t.pipeline.id)
+    expect(opp.stageId).toBe((await firstOpenOf(t.pipeline.id)).id)
+  })
+
+  it('equipe com um só vínculo resolve sozinha e o vínculo substitui o padrão', async () => {
+    const opp = await createOpportunityFor(tAdmin, (await newLead(t, { teamId: linkedTeam.id })).id, deal())
+
+    expect(opp.pipelineId).toBe(funnelB.id)
+    expect(opp.stageId).toBe((await firstOpenOf(funnelB.id)).id)
+  })
+
+  it('com mais de um efetivo exige a escolha, e o pipelineId escolhido decide a etapa inicial', async () => {
+    const twoWays = await addTeam(t, 'Duas opções')
+    await linkTeamToPipelineFor(tAdmin, funnelB.id, twoWays.id)
+    await linkTeamToPipelineFor(tAdmin, funnelC.id, twoWays.id)
+    const lead = await newLead(t, { teamId: twoWays.id })
+
+    await expect(createOpportunityFor(tAdmin, lead.id, deal())).rejects.toThrow('Escolha o pipeline')
+    const chosen = await createOpportunityFor(tAdmin, lead.id, deal({ pipelineId: funnelC.id }))
+
+    expect(chosen.pipelineId).toBe(funnelC.id)
+    expect(chosen.stageId).toBe((await firstOpenOf(funnelC.id)).id)
+    expect(await db.select().from(opportunities).where(eq(opportunities.leadId, lead.id))).toHaveLength(1)
+  })
+
+  it('recusa pipeline que a equipe do lead não enxerga', async () => {
+    await expect(createOpportunityFor(tAdmin, (await newLead(t, { teamId: linkedTeam.id })).id, deal({ pipelineId: t.pipeline.id }))).rejects.toThrow('não está vinculado')
+    await expect(createOpportunityFor(tAdmin, (await newLead(t)).id, deal({ pipelineId: funnelB.id }))).rejects.toThrow('não está vinculado')
+  })
+
+  it('recusa pipeline arquivado', async () => {
+    const retired = await createPipelineFor(tAdmin, 'Funil aposentado')
+    const lead = await newLead(t)
+    await archivePipelineFor(tAdmin, retired.id)
+
+    await expect(createOpportunityFor(tAdmin, lead.id, deal({ pipelineId: retired.id }))).rejects.toThrow('arquivado')
+  })
+
+  it('pipelineId de outro tenant é "não encontrado", em criar, converter, listar e funil', async () => {
+    const theirs = other.pipeline.id
+    const lead = await newLead(t)
+
+    await expect(createOpportunityFor(tAdmin, lead.id, deal({ pipelineId: theirs }))).rejects.toThrow('Pipeline não encontrado')
+    await expect(convertLeadFor(tAdmin, lead.id, deal({ pipelineId: theirs }))).rejects.toThrow('Pipeline não encontrado')
+    await expect(listPipelineFor(tAdmin, { pipelineId: theirs })).rejects.toThrow('Pipeline não encontrado')
+    await expect(funnelFor(tAdmin, { from: new Date(0), to: new Date(), pipelineId: theirs })).rejects.toThrow('Pipeline não encontrado')
+    expect((await db.select().from(leads).where(eq(leads.id, lead.id)))[0]!.status).toBe('new')
+  })
+
+  it('converter lead com vários efetivos sem escolher não qualifica o lead', async () => {
+    const twoWays = await addTeam(t, 'Converter com escolha')
+    await linkTeamToPipelineFor(tAdmin, funnelB.id, twoWays.id)
+    await linkTeamToPipelineFor(tAdmin, funnelC.id, twoWays.id)
+    const lead = await newLead(t, { teamId: twoWays.id })
+
+    await expect(convertLeadFor(tAdmin, lead.id, deal())).rejects.toThrow('Escolha o pipeline')
+    expect((await db.select().from(leads).where(eq(leads.id, lead.id)))[0]!.status).toBe('new')
+    const converted = await convertLeadFor(tAdmin, lead.id, deal({ pipelineId: funnelB.id }))
+
+    expect(converted.pipelineId).toBe(funnelB.id)
+  })
+
+  it('mover para etapa de outro pipeline é "Etapa não encontrada" e nada muda', async () => {
+    const opp = await dealIn(t.pipeline.id)
+    const foreignStage = await firstOpenOf(funnelB.id)
+
+    await expect(moveOpportunityFor(tAdmin, opp.id, foreignStage.id, {})).rejects.toThrow('Etapa não encontrada')
+
+    expect((await reload(opp.id)).stageId).toBe(opp.stageId)
+  })
+
+  it('o banco recusa etapa de outro pipeline por UPDATE direto e por INSERT direto', async () => {
+    const opp = await dealIn(t.pipeline.id)
+    const foreignStage = await firstOpenOf(funnelB.id)
+
+    await expect(db.update(opportunities).set({ stageId: foreignStage.id }).where(eq(opportunities.id, opp.id))).rejects.toThrow()
+    await expect(db.insert(opportunities).values({ tenantId: t.tenant.id, teamId: t.team.id, leadId: opp.leadId, title: 'Torta', pipelineId: t.pipeline.id, stageId: foreignStage.id })).rejects.toThrow()
+    expect((await reload(opp.id)).stageId).toBe(opp.stageId)
+  })
+
+  it('o quadro e o funil de um pipeline não mudam quando outro recebe oportunidades', async () => {
+    const period = { from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + DAY_MS) }
+    const boardBefore = (await listPipelineFor(tAdmin, { pipelineId: t.pipeline.id })).map((c) => [c.name, c.count])
+    const funnelBefore = await funnelFor(tAdmin, { ...period, pipelineId: t.pipeline.id })
+
+    const b = await dealIn(funnelB.id, linkedTeam.id)
+    await moveOpportunityFor(tAdmin, b.id, (await db.select().from(pipelineStages).where(and(eq(pipelineStages.pipelineId, funnelB.id), eq(pipelineStages.kind, 'won'))))[0]!.id, {})
+
+    expect((await listPipelineFor(tAdmin, { pipelineId: t.pipeline.id })).map((c) => [c.name, c.count])).toEqual(boardBefore)
+    expect(await funnelFor(tAdmin, { ...period, pipelineId: t.pipeline.id })).toEqual(funnelBefore)
+    const funnelOfB = await funnelFor(tAdmin, { ...period, pipelineId: funnelB.id })
+    expect(funnelOfB).toMatchObject({ created: expect.any(Number), won: 1 })
+    expect((await listPipelineFor(tAdmin, { pipelineId: funnelB.id })).every((c) => c.pipelineId === funnelB.id)).toBe(true)
+  })
+
+  it('o detalhe oferece só as etapas do pipeline da oportunidade', async () => {
+    const inB = await dealIn(funnelB.id, linkedTeam.id)
+
+    const detail = await getOpportunityFor(tAdmin, inB.id)
+
+    expect(detail.stages.every((s) => s.pipelineId === funnelB.id)).toBe(true)
+    expect(detail.stages.length).toBeGreaterThanOrEqual(3)
+  })
 })
 
 describe('getOpportunityFor', () => {

@@ -203,7 +203,7 @@ describe('importar leads', () => {
       const [lead] = await db.insert(leads).values({ tenantId: t.tenant.id, teamId: t.team.id, name: 'Base' }).returning()
       const [stage] = await db.select().from(pipelineStages).where(and(eq(pipelineStages.tenantId, t.tenant.id), eq(pipelineStages.kind, 'open'))).limit(1)
       await db.insert(opportunities).values(
-        [t.leader, t.leader, t.leader, t.leader].map((owner) => ({ tenantId: t.tenant.id, teamId: t.team.id, leadId: lead!.id, ownerId: owner.userId, title: 'N', stageId: stage!.id })),
+        [t.leader, t.leader, t.leader, t.leader].map((owner) => ({ tenantId: t.tenant.id, teamId: t.team.id, leadId: lead!.id, ownerId: owner.userId, title: 'N', pipelineId: stage!.pipelineId, stageId: stage!.id })),
       )
       const rows = Array.from({ length: 6 }, (_, i) => ({ name: `Lead ${i}`, email: `l${i}@acme.com` }))
 

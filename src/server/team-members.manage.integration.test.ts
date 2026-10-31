@@ -37,7 +37,7 @@ const eventsOf = (teamId: string) =>
     .orderBy(asc(auditEvents.createdAt), asc(auditEvents.id))
 
 async function scenario() {
-  const team = await addTeam(f, 'Equipe do cenário')
+  const team = await addTeam(f)
   const leader = await addUser(f, { role: 'MEMBER', team, teamRole: 'LEADER' })
   const member = await addUser(f, { role: 'MEMBER', team })
   const person = await addUser(f, { role: 'MEMBER', team: null })
@@ -51,7 +51,7 @@ const change = (me: AuthCtx, teamId: string, userId: string, role: TeamRole) => 
 describe('addTeamMemberFor', () => {
   it('admin põe uma pessoa que já existe numa segunda equipe, e ela passa a ter as duas', async () => {
     const { team, person } = await scenario()
-    const first = await addTeam(f, 'Primeira')
+    const first = await addTeam(f)
     await add(admin, first.id, person.userId)
 
     await add(admin, team.id, person.userId)
@@ -62,7 +62,7 @@ describe('addTeamMemberFor', () => {
 
   it('admin pode já promover a líder; a pessoa vira líder só nessa equipe', async () => {
     const { team, person } = await scenario()
-    const first = await addTeam(f, 'Primeira')
+    const first = await addTeam(f)
     await add(admin, first.id, person.userId)
 
     await add(admin, team.id, person.userId, 'LEADER')
@@ -95,8 +95,8 @@ describe('addTeamMemberFor', () => {
 
   it('a delegação vale na equipe que o líder lidera e não naquela onde ele só é membro, nem em equipe alheia', async () => {
     const { team: led, leader, person } = await scenario()
-    const joined = await addTeam(f, 'Onde é membro')
-    const stranger = await addTeam(f, 'Que não integra')
+    const joined = await addTeam(f)
+    const stranger = await addTeam(f)
     const delegate = withOverrides(await joinTeam(f, leader.userId, joined), delegated)
 
     await add(delegate, led.id, person.userId)
@@ -196,8 +196,8 @@ describe('removeTeamMemberFor', () => {
 
   it('o líder não age na equipe onde só é membro, nem na que não integra', async () => {
     const { team, leader, member } = await scenario()
-    const joined = await addTeam(f, 'Onde é membro')
-    const stranger = await addTeam(f, 'Que não integra')
+    const joined = await addTeam(f)
+    const stranger = await addTeam(f)
     const target = await addUser(f, { role: 'MEMBER', team: joined })
     await add(admin, stranger.id, target.userId)
     const twoTeams = await joinTeam(f, leader.userId, joined)

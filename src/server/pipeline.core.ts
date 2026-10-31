@@ -12,13 +12,15 @@ import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { can, fail, forbid, isAdmin, requireCan } from './roles'
 import { assertMember, inTeams, usersInScope } from './scope'
+import { lockOpenPipeline, lockPipelineForTeam } from './pipelines.core'
 import { listStagesFor } from './stages.core'
 import type { Tx } from './tx'
 
 const MIN_TITLE_LENGTH = 2
 const QUALIFIED: LeadStatus = 'qualified'
 
-export type OpportunityData = { title: string; amountCents: number; expectedCloseDate?: string | null; ownerId?: string | null }
+/** Sem `pipelineId`, a equipe do lead tem de ter um único pipeline efetivo. */
+export type OpportunityData = { title: string; amountCents: number; expectedCloseDate?: string | null; ownerId?: string | null; pipelineId?: string }
 export type OpportunityEdit = { title: string; amountCents: number; expectedCloseDate: string | null; ownerId: string | null }
 
 const canWriteOpportunity = (me: AuthCtx, record: Owned) => can(me, 'opportunity.write', record.teamId) && canEditRecord(me, record)
@@ -50,13 +52,14 @@ async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId
   assertValidFields(data)
   const ownerId = data.ownerId ?? null
   if (ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: lead.teamId })
+  const pipelineId = await lockPipelineForTeam(tx, me, lead.teamId, data.pipelineId)
   const [firstOpen] = await tx
     .select()
     .from(pipelineStages)
-    .where(and(eq(pipelineStages.tenantId, me.tenantId), eq(pipelineStages.kind, 'open')))
+    .where(and(eq(pipelineStages.pipelineId, pipelineId), eq(pipelineStages.kind, 'open')))
     .orderBy(asc(pipelineStages.sortOrder))
     .limit(1)
-  if (!firstOpen) fail('O funil não tem etapa aberta')
+  if (!firstOpen) fail('O pipeline não tem etapa aberta')
   const [opp] = await tx
     .insert(opportunities)
     .values({
@@ -67,6 +70,7 @@ async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId
       title: data.title.trim(),
       amountCents: data.amountCents,
       expectedCloseDate: data.expectedCloseDate ?? null,
+      pipelineId,
       stageId: firstOpen.id,
       sortOrder: await endOfStage(tx, firstOpen.id),
       createdById: me.userId,
@@ -78,7 +82,7 @@ async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId
     action: 'opportunity.created',
     entityType: 'opportunity',
     entityId: opp!.id,
-    meta: { title: opp!.title, leadId: lead.id, amountCents: opp!.amountCents, stage: firstOpen.name },
+    meta: { title: opp!.title, leadId: lead.id, amountCents: opp!.amountCents, pipelineId, stage: firstOpen.name },
   })
   return opp!
 }
@@ -129,7 +133,7 @@ export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toS
     // O relógio padrão só é lido depois do lock da linha: assim `changedAt` segue a ordem em que os movimentos simultâneos entram na fila.
     const at = now ?? new Date()
     if (!canEditRecord(me, opp)) forbid()
-    const stages = await tx.select().from(pipelineStages).where(eq(pipelineStages.tenantId, me.tenantId))
+    const stages = await tx.select().from(pipelineStages).where(eq(pipelineStages.pipelineId, opp.pipelineId))
     const target = stages.find((s) => s.id === toStageId)
     const current = stages.find((s) => s.id === opp.stageId)
     if (!target || !current) fail('Etapa não encontrada')
@@ -142,6 +146,7 @@ export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toS
     }
 
     if (plan.reopens) requireCan(me, 'opportunity.reopen', opp.teamId)
+    if (target.kind === 'open' && current.kind !== 'open') await lockOpenPipeline(tx, me, opp.pipelineId)
     const lostReason = lostReasonFor(target, options.lostReason)
     const [moved] = await tx
       .update(opportunities)
@@ -155,12 +160,23 @@ export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toS
   })
 }
 
-export type PipelineFilters = { teamId?: string; ownerId?: string }
+/** Pipeline de outro tenant ou inexistente não tem etapas: é "não encontrado", nunca uma lista vazia. */
+async function stagesOfPipeline(me: AuthCtx, pipelineId: string) {
+  const stages = await db
+    .select()
+    .from(pipelineStages)
+    .where(and(eq(pipelineStages.tenantId, me.tenantId), eq(pipelineStages.pipelineId, pipelineId)))
+    .orderBy(asc(pipelineStages.sortOrder))
+  if (!stages.length) fail('Pipeline não encontrado')
+  return stages
+}
+
+export type PipelineFilters = { pipelineId: string; teamId?: string; ownerId?: string }
 
 // NOTE: carrega todas as oportunidades do recorte, inclusive as fechadas; passando de alguns milhares, limitar as colunas ganha/perdida aos últimos N dias.
-export async function listPipelineFor(me: AuthCtx, filters: PipelineFilters = {}) {
+export async function listPipelineFor(me: AuthCtx, filters: PipelineFilters) {
   const [stages, rows] = await Promise.all([
-    db.select().from(pipelineStages).where(eq(pipelineStages.tenantId, me.tenantId)).orderBy(asc(pipelineStages.sortOrder)),
+    stagesOfPipeline(me, filters.pipelineId),
     db
       .select({
         id: opportunities.id,
@@ -177,7 +193,14 @@ export async function listPipelineFor(me: AuthCtx, filters: PipelineFilters = {}
       .from(opportunities)
       .innerJoin(leads, eq(leads.id, opportunities.leadId))
       .leftJoin(users, eq(users.id, opportunities.ownerId))
-      .where(and(eq(opportunities.tenantId, me.tenantId), inTeams(opportunities.teamId, me, { only: filters.teamId }), filters.ownerId ? eq(opportunities.ownerId, filters.ownerId) : undefined))
+      .where(
+        and(
+          eq(opportunities.tenantId, me.tenantId),
+          eq(opportunities.pipelineId, filters.pipelineId),
+          inTeams(opportunities.teamId, me, { only: filters.teamId }),
+          filters.ownerId ? eq(opportunities.ownerId, filters.ownerId) : undefined,
+        ),
+      )
       .orderBy(asc(opportunities.sortOrder), asc(opportunities.createdAt), asc(opportunities.id)),
   ])
   return stages.map((stage) => {
@@ -199,15 +222,15 @@ export async function pipelineFiltersFor(me: AuthCtx, teamId?: string) {
   return { teams: teamList, owners }
 }
 
-export type FunnelFilters = { from: Date; to: Date; teamId?: string }
+export type FunnelFilters = { pipelineId: string; from: Date; to: Date; teamId?: string }
 
 // NOTE: agrega em memória as linhas do período; passando de dezenas de milhares de oportunidades, mover a contagem para group by no SQL.
 /** Conversão olha a coorte criada no período; taxa de ganho e ciclo olham o que fechou no período. */
-export async function funnelFor(me: AuthCtx, { from, to, teamId }: FunnelFilters) {
-  const scope = and(eq(opportunities.tenantId, me.tenantId), inTeams(opportunities.teamId, me, { only: teamId }))
+export async function funnelFor(me: AuthCtx, { pipelineId, from, to, teamId }: FunnelFilters) {
+  const scope = and(eq(opportunities.tenantId, me.tenantId), eq(opportunities.pipelineId, pipelineId), inTeams(opportunities.teamId, me, { only: teamId }))
   const createdInPeriod = and(scope, gte(opportunities.createdAt, from), lte(opportunities.createdAt, to))
   const [stages, [cohort], changes, closed] = await Promise.all([
-    db.select().from(pipelineStages).where(eq(pipelineStages.tenantId, me.tenantId)).orderBy(asc(pipelineStages.sortOrder)),
+    stagesOfPipeline(me, pipelineId),
     db.select({ n: count() }).from(opportunities).where(createdInPeriod),
     db
       .select({ opportunityId: opportunityStageChanges.opportunityId, toStageId: opportunityStageChanges.toStageId })
@@ -268,7 +291,7 @@ export async function getOpportunityFor(me: AuthCtx, opportunityId: string) {
       .leftJoin(users, eq(users.id, tasks.assignedToId))
       .where(and(eq(tasks.opportunityId, opportunityId), eq(tasks.tenantId, me.tenantId)))
       .orderBy(asc(tasks.createdAt)),
-    listStagesFor(me),
+    listStagesFor(me, row.opp.pipelineId),
   ])
   const canWrite = canWriteOpportunity(me, row.opp)
   return {

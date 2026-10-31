@@ -6,12 +6,14 @@ import type { MovePayload } from '#/components/pipeline/Board'
 import { FunnelPanel } from '#/components/pipeline/FunnelPanel'
 import { LostReasonModal } from '#/components/pipeline/LostReasonModal'
 import { getFunnel, getPipelineFilters, listPipeline, moveOpportunity } from '#/server/pipeline'
+import { listPipelines } from '#/server/pipelines'
 
 const DAY_MS = 86_400_000
 const DEFAULT_PERIOD_DAYS = 90
 const PERIOD_OPTIONS = [30, 90, 365]
 
 const pipelineSearch = z.object({
+  pipelineId: z.uuid().optional(),
   teamId: z.uuid().optional(),
   ownerId: z.string().optional(),
   periodDays: z.number().int().min(1).max(730).default(DEFAULT_PERIOD_DAYS),
@@ -23,18 +25,32 @@ export const Route = createFileRoute('/_app/pipeline')({
   loader: async ({ deps }) => {
     const to = new Date()
     const from = new Date(to.getTime() - deps.periodDays * DAY_MS)
+    const pipelines = await listPipelines()
+    const pipelineId = pipelines.find((p) => p.id === deps.pipelineId)?.id ?? pipelines.find((p) => !p.archivedAt)?.id
+    if (!pipelineId) return null
     const [columns, filters, funnel] = await Promise.all([
-      listPipeline({ data: { teamId: deps.teamId, ownerId: deps.ownerId } }),
+      listPipeline({ data: { pipelineId, teamId: deps.teamId, ownerId: deps.ownerId } }),
       getPipelineFilters({ data: { teamId: deps.teamId } }),
-      getFunnel({ data: { from: from.toISOString(), to: to.toISOString(), teamId: deps.teamId } }),
+      getFunnel({ data: { pipelineId, from: from.toISOString(), to: to.toISOString(), teamId: deps.teamId } }),
     ])
     return { columns, filters, funnel }
   },
-  component: Pipeline,
+  component: PipelineOrEmpty,
 })
 
-function Pipeline() {
-  const { columns, filters, funnel } = Route.useLoaderData()
+function PipelineOrEmpty() {
+  const data = Route.useLoaderData()
+  if (!data) return <p className="card text-sm text-neutral-400">Nenhum pipeline disponível: entre em uma equipe para ver as oportunidades.</p>
+  return <Pipeline {...data} />
+}
+
+type PipelineData = {
+  columns: Awaited<ReturnType<typeof listPipeline>>
+  filters: Awaited<ReturnType<typeof getPipelineFilters>>
+  funnel: Awaited<ReturnType<typeof getFunnel>>
+}
+
+function Pipeline({ columns, filters, funnel }: PipelineData) {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/pipeline' })
   const router = useRouter()

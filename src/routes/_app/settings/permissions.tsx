@@ -15,6 +15,7 @@ const capabilityLabel: Record<Capability, string> = {
   'tenant.manage': 'Gerenciar tenants',
   'tenant.configure': 'Configurar o tenant',
   'team.manage': 'Gerenciar equipes',
+  'team.link': 'Vincular pipelines e boards às equipes',
   'team.member.manage': 'Adicionar pessoas já cadastradas à equipe (o líder só como membro)',
   'user.read': 'Ver usuários',
   'user.create': 'Criar usuários',

@@ -13,6 +13,19 @@ export const stageKinds: ReadonlyArray<StageKind> = ['open', 'won', 'lost']
 
 export const missingKinds = (stages: ReadonlyArray<{ kind: StageKind }>) => stageKinds.filter((kind) => !stages.some((s) => s.kind === kind))
 
+export type TeamPipelineLink = { teamId: string; pipelineId: string }
+
+/** Vínculo explícito substitui o padrão do tenant; só a equipe sem vínculo cai nele. */
+export function effectivePipelineIds(teamIds: ReadonlyArray<string>, links: ReadonlyArray<TeamPipelineLink>, defaultPipelineId: string) {
+  const ids = teamIds.flatMap((teamId) => {
+    const linked = links.filter((l) => l.teamId === teamId).map((l) => l.pipelineId)
+    return linked.length ? linked : [defaultPipelineId]
+  })
+  return [...new Set(ids)]
+}
+
+export const countOpportunities = (n: number) => `${n} ${n === 1 ? 'oportunidade' : 'oportunidades'}`
+
 // toPrecision(15) descarta o ruído de ponto flutuante (1.005 * 100 = 100.49999999999999) antes de arredondar.
 export const toCents = (reais: number) => Math.round(Number((reais * 100).toPrecision(15)))
 

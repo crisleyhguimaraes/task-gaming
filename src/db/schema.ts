@@ -29,6 +29,9 @@ export const teamRoleEnum = pgEnum('team_role', teamRoles)
 
 const ts = (name: string) => timestamp(name, { withTimezone: true })
 
+/** Nome sem diferenciar maiúsculas nem espaços nas pontas: a base dos índices de nome único. */
+const nameKey = () => text('name_key').generatedAlwaysAs(sql`lower(btrim(name))`)
+
 export const tenants = pgTable('tenants', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 120 }).notNull(),
@@ -49,9 +52,15 @@ export const teams = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' })
       .notNull(),
     name: varchar('name', { length: 100 }).notNull(),
+    description: varchar('description', { length: 300 }),
+    nameKey: nameKey(),
     createdAt: ts('created_at').defaultNow().notNull(),
   },
-  (t) => [index('teams_tenant_idx').on(t.tenantId), unique('teams_id_tenant_unique').on(t.id, t.tenantId)],
+  (t) => [
+    index('teams_tenant_idx').on(t.tenantId),
+    unique('teams_id_tenant_unique').on(t.id, t.tenantId),
+    unique('teams_tenant_name_key_unique').on(t.tenantId, t.nameKey),
+  ],
 )
 
 // Better Auth `user` (+ plugin admin) + nossos campos de tenant.
@@ -164,6 +173,41 @@ export type TaskStatus = (typeof taskStatusEnum.enumValues)[number]
 export const priorityEnum = pgEnum('priority', ['low', 'medium', 'high', 'urgent'])
 export type Priority = (typeof priorityEnum.enumValues)[number]
 
+// O board só agrupa tarefas: as colunas continuam sendo o status do cronômetro.
+export const boards = pgTable(
+  'boards',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 80 }).notNull(),
+    archivedAt: ts('archived_at'),
+    nameKey: nameKey(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    unique('boards_tenant_id_unique').on(t.tenantId, t.id),
+    uniqueIndex('boards_active_name_idx').on(t.tenantId, t.nameKey).where(sql`${t.archivedAt} is null`),
+  ],
+)
+
+export const boardTeams = pgTable(
+  'board_teams',
+  {
+    boardId: uuid('board_id').notNull(),
+    teamId: uuid('team_id').notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.boardId, t.teamId] }),
+    foreignKey({ name: 'board_teams_board_tenant_fk', columns: [t.tenantId, t.boardId], foreignColumns: [boards.tenantId, boards.id] }).onDelete('cascade'),
+    foreignKey({ name: 'board_teams_team_tenant_fk', columns: [t.teamId, t.tenantId], foreignColumns: [teams.id, teams.tenantId] }).onDelete('cascade'),
+    index('board_teams_team_idx').on(t.teamId),
+  ],
+)
+
 export const challenges = pgTable(
   'challenges',
   {
@@ -203,6 +247,7 @@ export const tasks = pgTable(
     createdById: text('created_by_id').references(() => users.id, { onDelete: 'set null' }),
     challengeId: uuid('challenge_id').references(() => challenges.id, { onDelete: 'set null' }),
     opportunityId: uuid('opportunity_id').references(() => opportunities.id, { onDelete: 'set null' }),
+    boardId: uuid('board_id'),
     title: varchar('title', { length: 200 }).notNull(),
     description: text('description'),
     basePoints: integer('base_points').notNull().default(10),
@@ -233,6 +278,9 @@ export const tasks = pgTable(
       .on(t.challengeId, t.assignedToId)
       .where(sql`${t.challengeId} is not null and ${t.status} in ('pending', 'in_progress', 'paused')`),
     index('tasks_opportunity_idx').on(t.opportunityId),
+    // NULL é "sem board". Restrict: o board com tarefa não se apaga.
+    foreignKey({ name: 'tasks_board_tenant_fk', columns: [t.tenantId, t.boardId], foreignColumns: [boards.tenantId, boards.id] }).onDelete('restrict'),
+    index('tasks_board_idx').on(t.boardId),
   ],
 )
 
@@ -363,6 +411,43 @@ export type StageKind = (typeof stageKindEnum.enumValues)[number]
 export const leadStatusEnum = pgEnum('lead_status', ['new', 'contacted', 'qualified', 'disqualified'])
 export type LeadStatus = (typeof leadStatusEnum.enumValues)[number]
 
+export const pipelines = pgTable(
+  'pipelines',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 80 }).notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    archivedAt: ts('archived_at'),
+    nameKey: nameKey(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    unique('pipelines_tenant_id_unique').on(t.tenantId, t.id),
+    uniqueIndex('pipelines_one_default_idx').on(t.tenantId).where(sql`${t.isDefault}`),
+    uniqueIndex('pipelines_active_name_idx').on(t.tenantId, t.nameKey).where(sql`${t.archivedAt} is null`),
+  ],
+)
+
+// As FKs compostas por tenant tornam impossível, no banco, vincular recurso de outro tenant à equipe.
+export const teamPipelines = pgTable(
+  'team_pipelines',
+  {
+    pipelineId: uuid('pipeline_id').notNull(),
+    teamId: uuid('team_id').notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.pipelineId, t.teamId] }),
+    foreignKey({ name: 'team_pipelines_pipeline_tenant_fk', columns: [t.tenantId, t.pipelineId], foreignColumns: [pipelines.tenantId, pipelines.id] }).onDelete('cascade'),
+    foreignKey({ name: 'team_pipelines_team_tenant_fk', columns: [t.teamId, t.tenantId], foreignColumns: [teams.id, teams.tenantId] }).onDelete('cascade'),
+    index('team_pipelines_team_idx').on(t.teamId),
+  ],
+)
+
 export const pipelineStages = pgTable(
   'pipeline_stages',
   {
@@ -370,13 +455,19 @@ export const pipelineStages = pgTable(
     tenantId: uuid('tenant_id')
       .references(() => tenants.id, { onDelete: 'cascade' })
       .notNull(),
+    pipelineId: uuid('pipeline_id').notNull(),
     name: varchar('name', { length: 60 }).notNull(),
     sortOrder: doublePrecision('sort_order').notNull(),
     kind: stageKindEnum('kind').notNull().default('open'),
     probability: integer('probability').notNull().default(0),
     createdAt: ts('created_at').defaultNow().notNull(),
   },
-  (t) => [index('pipeline_stages_tenant_idx').on(t.tenantId, t.sortOrder), check('pipeline_stages_probability', sql`${t.probability} between 0 and 100`)],
+  (t) => [
+    foreignKey({ name: 'pipeline_stages_pipeline_tenant_fk', columns: [t.tenantId, t.pipelineId], foreignColumns: [pipelines.tenantId, pipelines.id] }).onDelete('restrict'),
+    unique('pipeline_stages_pipeline_id_unique').on(t.pipelineId, t.id),
+    index('pipeline_stages_pipeline_idx').on(t.pipelineId, t.sortOrder),
+    check('pipeline_stages_probability', sql`${t.probability} between 0 and 100`),
+  ],
 )
 
 export const leads = pgTable(
@@ -428,9 +519,8 @@ export const opportunities = pgTable(
     title: varchar('title', { length: 200 }).notNull(),
     amountCents: bigint('amount_cents', { mode: 'number' }).notNull().default(0),
     expectedCloseDate: date('expected_close_date'),
-    stageId: uuid('stage_id')
-      .references(() => pipelineStages.id, { onDelete: 'restrict' })
-      .notNull(),
+    pipelineId: uuid('pipeline_id').notNull(),
+    stageId: uuid('stage_id').notNull(),
     closedAt: ts('closed_at'),
     lostReason: text('lost_reason'),
     sortOrder: doublePrecision('sort_order').notNull().default(0),
@@ -439,6 +529,8 @@ export const opportunities = pgTable(
     updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
   },
   (t) => [
+    // A oportunidade nunca cruza de pipeline: a etapa tem de ser do pipeline dela.
+    foreignKey({ name: 'opportunities_pipeline_stage_fk', columns: [t.pipelineId, t.stageId], foreignColumns: [pipelineStages.pipelineId, pipelineStages.id] }).onDelete('restrict'),
     index('opportunities_tenant_stage_idx').on(t.tenantId, t.stageId),
     index('opportunities_team_owner_idx').on(t.teamId, t.ownerId),
     index('opportunities_lead_idx').on(t.leadId),

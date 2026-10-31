@@ -21,7 +21,7 @@ const newTask = async () => {
 async function newOpportunity(tenantId: string, teamId: string) {
   const [lead] = await db.insert(leads).values({ tenantId, teamId, name: 'Lead' }).returning()
   const [stage] = await db.select().from(pipelineStages).where(and(eq(pipelineStages.tenantId, tenantId), eq(pipelineStages.kind, 'open'))).limit(1)
-  const [opp] = await db.insert(opportunities).values({ tenantId, teamId, leadId: lead!.id, title: 'Negócio', stageId: stage!.id }).returning()
+  const [opp] = await db.insert(opportunities).values({ tenantId, teamId, leadId: lead!.id, title: 'Negócio', pipelineId: stage!.pipelineId, stageId: stage!.id }).returning()
   return { lead: lead!, opp: opp! }
 }
 

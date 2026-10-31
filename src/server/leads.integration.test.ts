@@ -30,7 +30,7 @@ async function seedOpportunity(lead: { id: string; tenantId: string; teamId: str
     .limit(1)
   const [opp] = await db
     .insert(opportunities)
-    .values({ tenantId: lead.tenantId, teamId: lead.teamId, leadId: lead.id, ownerId, title: 'Negócio', stageId: stage!.id })
+    .values({ tenantId: lead.tenantId, teamId: lead.teamId, leadId: lead.id, ownerId, title: 'Negócio', pipelineId: stage!.pipelineId, stageId: stage!.id })
     .returning()
   return opp!
 }

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, leads, opportunities, opportunityStageChanges, pipelineStages } from '#/db/schema'
 import type { StageKind } from '#/db/schema'
+import { createPipelineFor } from './pipelines.core'
 import type { AuthCtx } from './roles'
 import { createStageFor, deleteStageFor, listStagesFor, reorderStageFor, updateStageFor } from './stages.core'
 import { addAdmin, makeTenant } from './test-fixtures'
@@ -15,20 +16,20 @@ let otherAdmin: AuthCtx
 let soloAdmin: AuthCtx
 
 const stageByName = async (name: string) => {
-  const stages = await listStagesFor(admin)
+  const stages = await listStagesFor(admin, f.pipeline.id)
   return stages.find((s) => s.name === name)!
 }
 
 async function opportunityIn(stageId: string) {
   const [lead] = await db.insert(leads).values({ tenantId: f.tenant.id, teamId: f.team.id, name: 'Lead' }).returning()
-  const [opp] = await db.insert(opportunities).values({ tenantId: f.tenant.id, teamId: f.team.id, leadId: lead!.id, title: 'Negócio', stageId }).returning()
+  const [opp] = await db.insert(opportunities).values({ tenantId: f.tenant.id, teamId: f.team.id, leadId: lead!.id, title: 'Negócio', pipelineId: f.pipeline.id, stageId }).returning()
   return opp!
 }
 
 const auditActions = async (entityId: string) =>
   (await db.select({ action: auditEvents.action }).from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.entityId, entityId))).orderBy(asc(auditEvents.createdAt))).map((e) => e.action)
 
-const newStage = (name: string, kind: StageKind = 'open', probability = 30) => createStageFor(admin, { name, kind, probability })
+const newStage = (name: string, kind: StageKind = 'open', probability = 30) => createStageFor(admin, { pipelineId: f.pipeline.id, name, kind, probability })
 
 beforeAll(async () => {
   f = await makeTenant(1)
@@ -47,7 +48,7 @@ afterAll(async () => {
 
 describe('listStagesFor', () => {
   it('lista as etapas do próprio tenant em ordem, para qualquer papel', async () => {
-    const stages = await listStagesFor(other.leader)
+    const stages = await listStagesFor(other.leader, other.pipeline.id)
 
     expect(stages.map((s) => s.name)).toEqual(['Novo', 'Qualificado', 'Proposta', 'Negociação', 'Ganha', 'Perdida'])
     expect(stages.every((s) => s.tenantId === other.tenant.id)).toBe(true)
@@ -55,24 +56,24 @@ describe('listStagesFor', () => {
 
   it('marca como em uso a etapa que já tem oportunidade ou histórico', async () => {
     const stage = await newStage('Em uso')
-    expect((await listStagesFor(admin)).find((s) => s.id === stage.id)!.inUse).toBe(false)
+    expect((await listStagesFor(admin, f.pipeline.id)).find((s) => s.id === stage.id)!.inUse).toBe(false)
 
     await opportunityIn(stage.id)
 
-    expect((await listStagesFor(admin)).find((s) => s.id === stage.id)!.inUse).toBe(true)
+    expect((await listStagesFor(admin, f.pipeline.id)).find((s) => s.id === stage.id)!.inUse).toBe(true)
   })
 })
 
 describe('createStageFor', () => {
   it('só quem tem pipeline.configure cria etapa', async () => {
-    await expect(createStageFor(f.leader, { name: 'X1', kind: 'open', probability: 10 })).rejects.toThrow('Sem permissão')
-    await expect(createStageFor(f.members[0]!, { name: 'X2', kind: 'open', probability: 10 })).rejects.toThrow('Sem permissão')
+    await expect(createStageFor(f.leader, { pipelineId: f.pipeline.id, name: 'X1', kind: 'open', probability: 10 })).rejects.toThrow('Sem permissão')
+    await expect(createStageFor(f.members[0]!, { pipelineId: f.pipeline.id, name: 'X2', kind: 'open', probability: 10 })).rejects.toThrow('Sem permissão')
   })
 
   it('a nova etapa fica logo depois da última do mesmo tipo e é auditada', async () => {
     const stage = await newStage('Diagnóstico', 'open', 40)
 
-    const names = (await listStagesFor(admin)).map((s) => s.name)
+    const names = (await listStagesFor(admin, f.pipeline.id)).map((s) => s.name)
     expect(names.indexOf('Diagnóstico')).toBe(names.indexOf('Ganha') - 1)
     expect(stage).toMatchObject({ name: 'Diagnóstico', kind: 'open', probability: 40, tenantId: f.tenant.id })
     expect(await auditActions(stage.id)).toEqual(['pipeline.stage_created'])
@@ -128,7 +129,7 @@ describe('updateStageFor', () => {
   })
 
   it('recusa trocar o tipo que deixaria o tenant sem etapa ganha ou perdida', async () => {
-    const stages = await listStagesFor(soloAdmin)
+    const stages = await listStagesFor(soloAdmin, solo.pipeline.id)
     const won = stages.find((s) => s.kind === 'won')!
     const lost = stages.find((s) => s.kind === 'lost')!
 
@@ -146,11 +147,11 @@ describe('updateStageFor', () => {
 
 describe('reorderStageFor', () => {
   it('muda a posição e audita', async () => {
-    const [first, second] = await listStagesFor(admin)
+    const [first, second] = await listStagesFor(admin, f.pipeline.id)
 
     await reorderStageFor(admin, second!.id, first!.sortOrder - 1)
 
-    expect((await listStagesFor(admin))[0]!.id).toBe(second!.id)
+    expect((await listStagesFor(admin, f.pipeline.id))[0]!.id).toBe(second!.id)
     expect(await auditActions(second!.id)).toContain('pipeline.stage_updated')
   })
 
@@ -173,7 +174,7 @@ describe('deleteStageFor', () => {
 
     await deleteStageFor(admin, stage.id)
 
-    expect((await listStagesFor(admin)).some((s) => s.id === stage.id)).toBe(false)
+    expect((await listStagesFor(admin, f.pipeline.id)).some((s) => s.id === stage.id)).toBe(false)
     expect(await auditActions(stage.id)).toEqual(['pipeline.stage_created', 'pipeline.stage_deleted'])
   })
 
@@ -194,7 +195,7 @@ describe('deleteStageFor', () => {
   })
 
   it('recusa apagar a última etapa de um tipo', async () => {
-    const stages = await listStagesFor(soloAdmin)
+    const stages = await listStagesFor(soloAdmin, solo.pipeline.id)
     const won = stages.find((s) => s.kind === 'won')!
     const lost = stages.find((s) => s.kind === 'lost')!
 
@@ -207,7 +208,7 @@ describe('deleteStageFor', () => {
 
     await deleteStageFor(admin, extra.id)
 
-    expect((await listStagesFor(admin)).filter((s) => s.kind === 'lost')).toHaveLength(1)
+    expect((await listStagesFor(admin, f.pipeline.id)).filter((s) => s.kind === 'lost')).toHaveLength(1)
   })
 
   it('não apaga etapa de outro tenant nem deixa líder apagar', async () => {
@@ -216,5 +217,73 @@ describe('deleteStageFor', () => {
     await expect(deleteStageFor(otherAdmin, mine.id)).rejects.toThrow('Etapa não encontrada')
     await expect(deleteStageFor(f.leader, mine.id)).rejects.toThrow('Sem permissão')
     expect(await db.select().from(pipelineStages).where(eq(pipelineStages.id, mine.id))).toHaveLength(1)
+  })
+})
+
+describe('etapas por pipeline', () => {
+  const kindsOf = (stages: Array<{ kind: StageKind }>) => stages.map((s) => s.kind)
+
+  it('a lista traz só as etapas do pipeline pedido', async () => {
+    const funnel = await createPipelineFor(admin, 'Funil lista')
+    await createStageFor(admin, { pipelineId: funnel.id, name: 'Só aqui', kind: 'open', probability: 5 })
+
+    const inFunnel = await listStagesFor(admin, funnel.id)
+    const inDefault = await listStagesFor(admin, f.pipeline.id)
+
+    expect(inFunnel.every((s) => s.pipelineId === funnel.id)).toBe(true)
+    expect(inFunnel.map((s) => s.name)).toContain('Só aqui')
+    expect(inDefault.map((s) => s.name)).not.toContain('Só aqui')
+  })
+
+  it('recusa apagar a última ganha de um pipeline mesmo havendo ganha em outro', async () => {
+    const funnel = await createPipelineFor(admin, 'Funil sem reserva')
+    const won = (await listStagesFor(admin, funnel.id)).find((s) => s.kind === 'won')!
+
+    await expect(deleteStageFor(admin, won.id)).rejects.toThrow('ganha')
+    expect(kindsOf(await listStagesFor(admin, funnel.id))).toContain('won')
+  })
+
+  it('recusa trocar o tipo da última perdida de um pipeline mesmo havendo perdida em outro', async () => {
+    const funnel = await createPipelineFor(admin, 'Funil só uma perdida')
+    const lost = (await listStagesFor(admin, funnel.id)).find((s) => s.kind === 'lost')!
+
+    await expect(updateStageFor(admin, lost.id, { kind: 'open' })).rejects.toThrow('perdida')
+  })
+
+  it('a etapa criada fica no pipeline pedido e a auditoria leva o pipelineId', async () => {
+    const funnel = await createPipelineFor(admin, 'Funil auditado')
+
+    const stage = await createStageFor(admin, { pipelineId: funnel.id, name: 'Auditada', kind: 'open', probability: 20 })
+
+    expect(stage.pipelineId).toBe(funnel.id)
+    const [created] = await db.select().from(auditEvents).where(and(eq(auditEvents.entityId, stage.id), eq(auditEvents.action, 'pipeline.stage_created')))
+    expect(created!.meta).toMatchObject({ pipelineId: funnel.id })
+    await updateStageFor(admin, stage.id, { probability: 25 })
+    const [updated] = await db.select().from(auditEvents).where(and(eq(auditEvents.entityId, stage.id), eq(auditEvents.action, 'pipeline.stage_updated')))
+    expect(updated!.meta).toMatchObject({ pipelineId: funnel.id })
+  })
+
+  it('recusa criar etapa em pipeline de outro tenant ou inexistente', async () => {
+    const theirs = await createPipelineFor(otherAdmin, 'Funil alheio')
+
+    await expect(createStageFor(admin, { pipelineId: theirs.id, name: 'Invasora', kind: 'open', probability: 10 })).rejects.toThrow('Pipeline não encontrado')
+    await expect(createStageFor(admin, { pipelineId: crypto.randomUUID(), name: 'Fantasma', kind: 'open', probability: 10 })).rejects.toThrow('Pipeline não encontrado')
+    expect((await listStagesFor(otherAdmin, theirs.id)).map((s) => s.name)).not.toContain('Invasora')
+  })
+
+  it('não lista as etapas de pipeline de outro tenant', async () => {
+    expect(await listStagesFor(admin, other.pipeline.id)).toEqual([])
+  })
+
+  it('dois apagamentos simultâneos das duas únicas ganhas de um pipeline deixam uma', async () => {
+    const funnel = await createPipelineFor(admin, 'Funil concorrente')
+    const firstWon = (await listStagesFor(admin, funnel.id)).find((s) => s.kind === 'won')!
+    const secondWon = await createStageFor(admin, { pipelineId: funnel.id, name: 'Fechada', kind: 'won', probability: 100 })
+
+    const results = await Promise.allSettled([deleteStageFor(admin, firstWon.id), deleteStageFor(admin, secondWon.id)])
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1)
+    expect(kindsOf(await listStagesFor(admin, funnel.id)).filter((k) => k === 'won')).toHaveLength(1)
   })
 })

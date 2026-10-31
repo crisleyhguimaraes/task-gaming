@@ -106,6 +106,27 @@
       "when": 1793460693109,
       "tag": "0014_remove_equipe_unica_e_lider_de_tenant",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793461385864,
+      "tag": "0015_equipe_com_descricao_e_nome_unico",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793461414870,
+      "tag": "0016_pipelines_e_vinculo_com_equipes",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793461443511,
+      "tag": "0017_boards_e_vinculo_com_equipes",
+      "breakpoints": true
     }
   ]
 }

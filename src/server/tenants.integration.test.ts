@@ -1,7 +1,7 @@
 import { eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { challenges, leads, pipelineStages, tenants } from '#/db/schema'
+import { challenges, leads, pipelineStages, pipelines, tenants } from '#/db/schema'
 import type { AuthCtx } from './roles'
 import { createTeamFor, deleteTeamFor, listTeamsFor } from './teams.core'
 import { addAdmin, addUser, joinTeam, makeTenant } from './test-fixtures'
@@ -33,8 +33,36 @@ describe('funil padrão', () => {
     expect(stages.find((s) => s.kind === 'lost')!.probability).toBe(0)
   })
 
+  it('tenant novo tem um só pipeline, o padrão, dono de todas as etapas', async () => {
+    const tenant = await createTenantFor({ ...admin, role: 'SUPER_ADMIN' }, { name: 'Com pipeline', slug: `pipeline-${f.tenant.slug}`, timezone: 'America/Sao_Paulo' })
+    createdTenants.push(tenant.id)
+
+    const owned = await db.select().from(pipelines).where(eq(pipelines.tenantId, tenant.id))
+    const stages = await db.select().from(pipelineStages).where(eq(pipelineStages.tenantId, tenant.id))
+
+    expect(owned).toMatchObject([{ name: 'Funil de vendas', isDefault: true, archivedAt: null }])
+    expect(stages.every((s) => s.pipelineId === owned[0]!.id)).toBe(true)
+  })
+
   it('tenant criado pelo fixture também tem funil', async () => {
     expect(await db.select().from(pipelineStages).where(eq(pipelineStages.tenantId, f.tenant.id))).toHaveLength(6)
+  })
+})
+
+describe('criar equipe', () => {
+  it('recusa nome repetido sem diferenciar maiúsculas nem espaços, com mensagem clara', async () => {
+    await createTeamFor(admin, 'Atendimento')
+
+    await expect(createTeamFor(admin, '  ATENDIMENTO ')).rejects.toThrow('Já existe uma equipe com esse nome')
+  })
+
+  it('aceita o mesmo nome em outro tenant', async () => {
+    const other = await makeTenant(0)
+    try {
+      await expect(createTeamFor(await addAdmin(other), 'Atendimento')).resolves.toMatchObject({ name: 'Atendimento' })
+    } finally {
+      await other.cleanup()
+    }
   })
 })
 

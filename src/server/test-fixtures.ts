@@ -4,7 +4,7 @@ import { teamMembers, teams, tenants, users } from '#/db/schema'
 import type { TeamRole } from '#/lib/access'
 import { auth } from '#/lib/auth'
 import { loadAuthCtx } from './auth-context.core'
-import { insertDefaultStages } from './stages.core'
+import { insertDefaultPipeline } from './pipelines.core'
 import type { AuthCtx } from './roles'
 
 type Team = { id: string }
@@ -37,7 +37,7 @@ export function addAdmin(f: { tenant: { id: string; slug: string }; team: Team }
   return insertUser(f.tenant.id, f.team, 'TENANT_ADMIN', `adm-${f.tenant.slug}`, 'Admin')
 }
 
-export async function addTeam(f: { tenant: { id: string } }, name = 'Outra equipe') {
+export async function addTeam(f: { tenant: { id: string } }, name = `Equipe ${Math.random().toString(36).slice(2, 8)}`) {
   const [team] = await db.insert(teams).values({ tenantId: f.tenant.id, name }).returning()
   return team!
 }
@@ -65,7 +65,7 @@ export async function addLoginUser(
 export async function makeTenant(members = 2) {
   const suffix = Math.random().toString(36).slice(2, 8)
   const [tenant] = await db.insert(tenants).values({ name: `T ${suffix}`, slug: `t-${suffix}` }).returning()
-  await insertDefaultStages(db, tenant!.id)
+  const pipeline = await insertDefaultPipeline(db, tenant!.id)
   const team = await addTeam({ tenant: tenant! }, 'Time')
   const mk = (i: number, teamRole: TeamRole) => insertUser(tenant!.id, team, 'MEMBER', `u-${suffix}-${i}`, `User ${i}`, teamRole)
   const leader = await mk(0, 'LEADER')
@@ -73,6 +73,7 @@ export async function makeTenant(members = 2) {
   for (let i = 1; i <= members; i++) list.push(await mk(i, 'MEMBER'))
   return {
     tenant: tenant!,
+    pipeline,
     team,
     leader,
     members: list,

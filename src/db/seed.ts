@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from './index'
 import { tenants, users } from './schema'
 import { auth } from '#/lib/auth'
+import { insertDefaultPipeline } from '#/server/pipelines.core'
 
 const email = process.env.SEED_SUPERADMIN_EMAIL!
 const password = process.env.SEED_SUPERADMIN_PASSWORD!
@@ -9,7 +10,11 @@ const tenantName = process.env.SEED_ADMIN_TENANT_NAME ?? 'Administradora'
 
 let tenant = (await db.select().from(tenants).where(eq(tenants.slug, 'admin')))[0]
 if (!tenant) {
-  tenant = (await db.insert(tenants).values({ name: tenantName, slug: 'admin' }).returning())[0]!
+  tenant = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(tenants).values({ name: tenantName, slug: 'admin' }).returning()
+    await insertDefaultPipeline(tx, created!.id)
+    return created!
+  })
   console.log('tenant criado:', tenant.name)
 }
 

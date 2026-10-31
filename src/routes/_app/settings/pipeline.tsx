@@ -4,10 +4,18 @@ import * as React from 'react'
 import { appRoute } from '#/lib/app-route'
 import { calculateNewOrder } from '#/lib/order'
 import { can } from '#/server/roles'
+import { z } from 'zod'
 import { createStage, deleteStage, listStages, reorderStage, updateStage } from '#/server/pipeline'
+import { listPipelines } from '#/server/pipelines'
 
 export const Route = createFileRoute('/_app/settings/pipeline')({
-  loader: () => listStages(),
+  validateSearch: z.object({ pipelineId: z.uuid().optional() }),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ deps }) => {
+    const pipelines = await listPipelines()
+    const pipelineId = pipelines.find((p) => p.id === deps.pipelineId)?.id ?? pipelines.find((p) => !p.archivedAt)?.id
+    return { pipelineId, stages: pipelineId ? await listStages({ data: { pipelineId } }) : [] }
+  },
   component: PipelineSettings,
 })
 
@@ -17,7 +25,7 @@ type Kind = Stage['kind']
 
 function PipelineSettings() {
   const { me } = appRoute.useRouteContext()
-  const stages = Route.useLoaderData()
+  const { pipelineId, stages } = Route.useLoaderData()
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
 
@@ -40,6 +48,7 @@ function PipelineSettings() {
   }
 
   if (!can(me, 'pipeline.configure')) return <p className="card text-sm text-neutral-400">Só gestores gerais configuram o funil.</p>
+  if (!pipelineId) return <p className="card text-sm text-neutral-400">Nenhum pipeline disponível.</p>
 
   return (
     <div className="space-y-5">
@@ -54,7 +63,7 @@ function PipelineSettings() {
           e.preventDefault()
           const form = e.currentTarget
           const f = new FormData(form)
-          act(() => createStage({ data: { name: String(f.get('name')), kind: String(f.get('kind')) as Kind, probability: Number(f.get('probability')) } }).then(() => form.reset()))
+          act(() => createStage({ data: { pipelineId, name: String(f.get('name')), kind: String(f.get('kind')) as Kind, probability: Number(f.get('probability')) } }).then(() => form.reset()))
         }}
         className="card grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_auto_auto_auto]"
       >

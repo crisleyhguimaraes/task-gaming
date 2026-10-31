@@ -16,7 +16,7 @@ const opportunityFields = {
 
 export const listPipeline = createServerFn()
   .middleware([authMiddleware])
-  .validator(z.object({ teamId: z.uuid().optional(), ownerId: z.string().optional() }))
+  .validator(z.object({ pipelineId: z.uuid(), teamId: z.uuid().optional(), ownerId: z.string().optional() }))
   .handler(({ data, context: { auth: me } }) => listPipelineFor(me, data))
 
 export const getPipelineFilters = createServerFn()
@@ -26,8 +26,8 @@ export const getPipelineFilters = createServerFn()
 
 export const getFunnel = createServerFn()
   .middleware([authMiddleware])
-  .validator(z.object({ from: z.iso.datetime(), to: z.iso.datetime(), teamId: z.uuid().optional() }))
-  .handler(({ data, context: { auth: me } }) => funnelFor(me, { from: new Date(data.from), to: new Date(data.to), teamId: data.teamId }))
+  .validator(z.object({ pipelineId: z.uuid(), from: z.iso.datetime(), to: z.iso.datetime(), teamId: z.uuid().optional() }))
+  .handler(({ data, context: { auth: me } }) => funnelFor(me, { ...data, from: new Date(data.from), to: new Date(data.to) }))
 
 export const getOpportunity = createServerFn()
   .middleware([authMiddleware])
@@ -50,7 +50,7 @@ export const moveOpportunity = createServerFn({ method: 'POST' })
 
 export const convertLead = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(z.object({ leadId: z.uuid(), ...opportunityFields, expectedCloseDate: opportunityFields.expectedCloseDate.optional(), ownerId: z.string().nullable().optional() }))
+  .validator(z.object({ leadId: z.uuid(), ...opportunityFields, expectedCloseDate: opportunityFields.expectedCloseDate.optional(), ownerId: z.string().nullable().optional(), pipelineId: z.uuid().optional() }))
   .handler(async ({ data: { leadId, ...fields }, context: { auth: me } }) => {
     const opportunity = await convertLeadFor(me, leadId, fields)
     return { id: opportunity.id }
@@ -58,11 +58,12 @@ export const convertLead = createServerFn({ method: 'POST' })
 
 export const listStages = createServerFn()
   .middleware([authMiddleware])
-  .handler(({ context: { auth: me } }) => listStagesFor(me))
+  .validator(z.object({ pipelineId: z.uuid() }))
+  .handler(({ data, context: { auth: me } }) => listStagesFor(me, data.pipelineId))
 
 export const createStage = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(z.object({ name: z.string().trim().min(2).max(60), kind: stageKind, probability: z.int().min(0).max(100) }))
+  .validator(z.object({ pipelineId: z.uuid(), name: z.string().trim().min(2).max(60), kind: stageKind, probability: z.int().min(0).max(100) }))
   .handler(async ({ data, context: { auth: me } }) => {
     await createStageFor(me, data)
   })

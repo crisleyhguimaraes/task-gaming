@@ -2,6 +2,7 @@ import { and, asc, count, eq } from 'drizzle-orm'
 import { db } from '#/db'
 import { challenges, leads, tasks, teamMembers, teams } from '#/db/schema'
 import { recordAudit } from './audit.core'
+import { failOnDuplicate } from './duplicate'
 import type { AuthCtx } from './roles'
 import { fail } from './roles'
 import type { Reader } from './tx'
@@ -14,8 +15,8 @@ export async function assertTeamInTenant(tx: Reader, tenantId: string, teamId: s
 
 export async function createTeamFor(me: AuthCtx, name: string) {
   return db.transaction(async (tx) => {
-    const [team] = await tx.insert(teams).values({ tenantId: me.tenantId, name }).returning()
-    await recordAudit(tx, me, { action: 'team.created', entityType: 'team', entityId: team!.id, meta: { name } })
+    const [team] = await failOnDuplicate('Já existe uma equipe com esse nome', tx.insert(teams).values({ tenantId: me.tenantId, name: name.trim() }).returning())
+    await recordAudit(tx, me, { action: 'team.created', entityType: 'team', entityId: team!.id, meta: { name: team!.name } })
     return team!
   })
 }

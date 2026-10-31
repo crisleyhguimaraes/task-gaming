@@ -13,7 +13,7 @@ async function newOpportunity(tenant: typeof f, teamId = tenant.team.id) {
   const [stage] = await db.select().from(pipelineStages).where(and(eq(pipelineStages.tenantId, tenant.tenant.id), eq(pipelineStages.kind, 'open'))).limit(1)
   const [opp] = await db
     .insert(opportunities)
-    .values({ tenantId: tenant.tenant.id, teamId, leadId: lead!.id, title: 'Negócio', stageId: stage!.id })
+    .values({ tenantId: tenant.tenant.id, teamId, leadId: lead!.id, title: 'Negócio', pipelineId: stage!.pipelineId, stageId: stage!.id })
     .returning()
   return opp!
 }

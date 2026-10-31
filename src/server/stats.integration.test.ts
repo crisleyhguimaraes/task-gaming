@@ -58,7 +58,7 @@ describe('ranking', () => {
   })
 
   it('membro vê só a própria equipe e admin vê o tenant, com ou sem filtro de equipe', async () => {
-    const teamB = await addTeam(f, 'B')
+    const teamB = await addTeam(f)
     const inB = await addUser(f, { role: 'MEMBER', team: teamB })
     const admin = await addUser(f, { role: 'TENANT_ADMIN', team: null })
 

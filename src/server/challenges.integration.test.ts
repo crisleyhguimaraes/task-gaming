@@ -356,7 +356,7 @@ describe('desafio de equipe onde a pessoa é membro, entre várias', () => {
   const data = { title: 'Da B', basePoints: 50, estimatedMinutes: 10, scoredAttemptsPerDay: 1 }
 
   const memberOfAAndB = async () => {
-    const teamB = await addTeam(f, 'B-desafio')
+    const teamB = await addTeam(f)
     const me = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB)
     return { teamB, me }
   }

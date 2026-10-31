@@ -31,7 +31,7 @@ const linksOf = (teamId: string, userId: string) =>
 const eventsOf = (teamId: string) =>
   db.select().from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.entityType, 'team'), eq(auditEvents.entityId, teamId))).orderBy(asc(auditEvents.createdAt), asc(auditEvents.id))
 
-const freshTeamAndUser = async () => ({ team: await addTeam(f, 'Nova'), user: await addUser(f, { role: 'MEMBER', team: null }) })
+const freshTeamAndUser = async () => ({ team: await addTeam(f), user: await addUser(f, { role: 'MEMBER', team: null }) })
 
 describe('addMember', () => {
   it('cria o vínculo com o papel pedido (MEMBER por padrão) e audita na equipe', async () => {
@@ -188,7 +188,7 @@ describe('removeMember e o trabalho aberto da equipe', () => {
 
   it('devolve ao pool e fecha o log só das tarefas daquela equipe; as da outra ficam', async () => {
     const { team: teamA, user } = await freshTeamAndUser()
-    const teamB = await addTeam(f, 'B')
+    const teamB = await addTeam(f)
     await add(teamA.id, user.userId)
     await add(teamB.id, user.userId)
     const inA = await openTask(teamA.id, user.userId)
@@ -228,8 +228,8 @@ describe('removeMember e o trabalho aberto da equipe', () => {
   })
 
   it('removeTeamMemberFor devolve só o trabalho da equipe de que a pessoa saiu', async () => {
-    const teamA = await addTeam(f, 'A')
-    const teamB = await addTeam(f, 'B')
+    const teamA = await addTeam(f)
+    const teamB = await addTeam(f)
     const user = await addUser(f, { role: 'MEMBER', team: teamA })
     await joinTeam(f, user.userId, teamB)
     const inA = await openTask(teamA.id, user.userId)
