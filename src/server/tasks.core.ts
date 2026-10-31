@@ -178,8 +178,13 @@ const summaryOf = (task: Task, result: FinishResult): FinishSummary => ({
 
 type Best = { seconds: number; userId: string }
 
-/** O recorde atual do desafio (a melhor tentativa válida), ignorando `excludeTaskId`. */
+/**
+ * O recorde atual do desafio (a melhor tentativa válida), ignorando `excludeTaskId`.
+ * Serializa por desafio até o fim da transação: dois finais ao mesmo tempo leriam o mesmo recorde anterior e os dois anunciariam tê-lo batido.
+ * A trava é consultiva porque travar a linha de `challenges` inverteria a ordem de attemptChallengeFor (desafio, depois tarefa).
+ */
 async function challengeBest(tx: Tx, challengeId: string, excludeTaskId: string): Promise<Best | null> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${challengeId}, 0))`)
   const [best] = await tx
     .select({ seconds: sql<number>`${tasks.movingSeconds}`, userId: sql<string>`${tasks.assignedToId}` })
     .from(tasks)
