@@ -392,6 +392,21 @@ describe('unlinkTeamFromPipelineFor', () => {
     expect(kept!.pipelineId).toBe(created.id)
   })
 
+  it('reabrir oportunidade fechada num pipeline de que a equipe foi desvinculada é recusado, e ela continua fechada', async () => {
+    const created = await createPipelineFor(admin, uniqueName('Desvinculado depois de fechar'))
+    await linkTeamToPipelineFor(admin, created.id, f.team.id)
+    const opp = await openDealIn(created.id)
+    await closeDeal(opp.id, created.id)
+    await unlinkTeamFromPipelineFor(admin, created.id, f.team.id)
+    const firstOpen = (await listStagesFor(admin, created.id)).find((s) => s.kind === 'open')!
+
+    await expect(moveOpportunityFor(admin, opp.id, firstOpen.id)).rejects.toThrow('não está vinculado')
+
+    const [kept] = await db.select().from(opportunities).where(eq(opportunities.id, opp.id))
+    expect(kept!.stageId).not.toBe(firstOpen.id)
+    expect(kept!.closedAt).not.toBeNull()
+  })
+
   it('o trabalho aberto de outra equipe não impede desvincular', async () => {
     const created = await createPipelineFor(admin, uniqueName('Duas equipes'))
     await linkTeamToPipelineFor(admin, created.id, f.team.id)

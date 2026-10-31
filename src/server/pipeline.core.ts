@@ -11,8 +11,8 @@ import { canEditRecord, canSeeRecord, lostReasonFor, planMove } from '#/lib/oppo
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { can, fail, forbid, isAdmin, requireCan } from './roles'
-import { assertMember, inTeams, usersInScope } from './scope'
-import { lockOpenPipeline, lockPipelineForTeam } from './pipelines.core'
+import { assertMember, inTeams, lockActiveMember, usersInScope } from './scope'
+import { lockPipelineForTeam } from './pipelines.core'
 import { listStagesFor } from './stages.core'
 import type { Tx } from './tx'
 
@@ -48,10 +48,12 @@ async function endOfStage(tx: Tx, stageId: string) {
   return calculateNewOrder(row?.last ?? null, null)
 }
 
-async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId: string }, data: OpportunityData, now = new Date()) {
+async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId: string; ownerId: string | null }, data: OpportunityData, now = new Date()) {
   assertValidFields(data)
   const ownerId = data.ownerId ?? null
-  if (ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: lead.teamId })
+  // O dono do lead não é conferido: com o lead travado, travar o vínculo dele dá impasse com a saída (vínculo, depois lead).
+  // A saída espera esta transação no lead e então enxerga a oportunidade nova e a libera.
+  if (ownerId && ownerId !== lead.ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: lead.teamId })
   const pipelineId = await lockPipelineForTeam(tx, me, lead.teamId, data.pipelineId)
   const [firstOpen] = await tx
     .select()
@@ -126,6 +128,12 @@ export async function updateOpportunityFor(me: AuthCtx, opportunityId: string, d
   })
 }
 
+/** A oportunidade fechada guarda o dono como histórico; ao reabrir, quem já não é da equipe não a mantém, ou ela ficaria aberta onde ele não a enxerga. */
+async function ownerStillInTeam(tx: Tx, opp: { tenantId: string; teamId: string; ownerId: string | null }) {
+  if (!opp.ownerId) return null
+  return (await lockActiveMember(tx, { tenantId: opp.tenantId, userId: opp.ownerId, teamId: opp.teamId })) ? opp.ownerId : null
+}
+
 export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toStageId: string, options: MoveOptions = {}, now?: Date) {
   if (options.sortOrder !== undefined && !Number.isFinite(options.sortOrder)) fail('Posição inválida')
   return db.transaction(async (tx) => {
@@ -146,16 +154,23 @@ export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toS
     }
 
     if (plan.reopens) requireCan(me, 'opportunity.reopen', opp.teamId)
-    if (target.kind === 'open' && current.kind !== 'open') await lockOpenPipeline(tx, me, opp.pipelineId)
+    const backToOpen = target.kind === 'open' && current.kind !== 'open'
+    if (backToOpen) await lockPipelineForTeam(tx, me, opp.teamId, opp.pipelineId)
     const lostReason = lostReasonFor(target, options.lostReason)
     const [moved] = await tx
       .update(opportunities)
-      .set({ stageId: target.id, sortOrder: options.sortOrder ?? (await endOfStage(tx, target.id)), closedAt: plan.closedAt, lostReason })
+      .set({
+        stageId: target.id,
+        sortOrder: options.sortOrder ?? (await endOfStage(tx, target.id)),
+        closedAt: plan.closedAt,
+        lostReason,
+        ownerId: backToOpen ? await ownerStillInTeam(tx, opp) : opp.ownerId,
+      })
       .where(eq(opportunities.id, opp.id))
       .returning()
     await tx.insert(opportunityStageChanges).values({ tenantId: me.tenantId, opportunityId: opp.id, fromStageId: current.id, toStageId: target.id, changedById: me.userId, changedAt: at })
     const meta: AuditMeta = { fromStage: current.name, toStage: target.name, ...(lostReason ? { lostReason } : {}) }
-    await recordAudit(tx, me, { action: plan.action, entityType: 'opportunity', entityId: opp.id, changes: diffFields(opp, moved!, ['stageId']), meta })
+    await recordAudit(tx, me, { action: plan.action, entityType: 'opportunity', entityId: opp.id, changes: diffFields(opp, moved!, ['stageId', 'ownerId']), meta })
     return moved!
   })
 }

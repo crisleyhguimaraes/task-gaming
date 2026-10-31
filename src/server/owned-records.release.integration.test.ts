@@ -1,10 +1,10 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, leads, opportunities } from '#/db/schema'
+import { auditEvents, leads, opportunities, pipelineStages } from '#/db/schema'
 import { getLeadFor, updateLeadFor } from './leads.core'
 import { listNotesFor } from './notes.core'
-import { getOpportunityFor, updateOpportunityFor } from './pipeline.core'
+import { getOpportunityFor, moveOpportunityFor, updateOpportunityFor } from './pipeline.core'
 import type { AuthCtx } from './roles'
 import { removeTeamMemberFor } from './team-members.core'
 import { addLead, addOpportunity } from './test-crm-fixtures'
@@ -32,8 +32,11 @@ const newMember = () => addUser(f, { role: 'MEMBER', team: f.team })
 const ownerOfLead = async (id: string) => (await db.select().from(leads).where(eq(leads.id, id)))[0]!.ownerId
 const ownerOfOpportunity = async (id: string) => (await db.select().from(opportunities).where(eq(opportunities.id, id)))[0]!.ownerId
 
+const firstOpenStage = async () =>
+  (await db.select().from(pipelineStages).where(and(eq(pipelineStages.pipelineId, f.pipeline.id), eq(pipelineStages.kind, 'open'))).orderBy(asc(pipelineStages.sortOrder)))[0]!
+
 const eventOf = async (action: 'team.member_removed' | 'user.deactivated', entityId: string) =>
-  (await db.select().from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.action, action), eq(auditEvents.entityId, entityId))))[0]!
+  (await db.select().from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.action, action), eq(auditEvents.entityId, entityId))).orderBy(desc(auditEvents.createdAt)))[0]!
 
 const edit = { name: 'Outro nome', source: 'site', status: 'contacted' } as const
 
@@ -71,6 +74,26 @@ describe('quem sai da equipe', () => {
     await removeTeamMemberFor(admin, { userId: leaver.userId, teamId: f.team.id })
 
     expect(await ownerOfOpportunity(won.id)).toBe(leaver.userId)
+  })
+
+  it('reabrir a oportunidade fechada dele deixa a oportunidade aberta sem dono', async () => {
+    const leaver = await newMember()
+    const won = await addOpportunity(f, await addLead(f, f.team.id, null), leaver.userId, 'won')
+    await removeTeamMemberFor(admin, { userId: leaver.userId, teamId: f.team.id })
+
+    await moveOpportunityFor(f.leader, won.id, (await firstOpenStage()).id)
+
+    expect(await ownerOfOpportunity(won.id)).toBeNull()
+    await expect(getOpportunityFor(f.leader, won.id)).resolves.toMatchObject({ opportunity: { ownerId: null } })
+  })
+
+  it('reabrir a oportunidade fechada de quem continua na equipe mantém o dono', async () => {
+    const member = await newMember()
+    const won = await addOpportunity(f, await addLead(f, f.team.id, null), member.userId, 'won')
+
+    await moveOpportunityFor(f.leader, won.id, (await firstOpenStage()).id)
+
+    expect(await ownerOfOpportunity(won.id)).toBe(member.userId)
   })
 
   it('perde a leitura da oportunidade fechada que era dele, embora o histórico guarde o nome', async () => {

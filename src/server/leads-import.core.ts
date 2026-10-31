@@ -2,14 +2,15 @@ import { and, asc, eq, inArray, or } from 'drizzle-orm'
 import { db } from '#/db'
 import { leads } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
-import type { ParsedLead, RawLeadRow } from '#/lib/leads'
+import type { OwnerLoad, ParsedLead, RawLeadRow } from '#/lib/leads'
 import { maxImportRows, parseLeadRow, takeLeastLoaded } from '#/lib/leads'
 import { recordAudit } from './audit.core'
 import { teamLoads } from './leads.core'
 import type { AuthCtx } from './roles'
 import { canManage, fail, forbid, requireCan } from './roles'
+import { lockActiveMember } from './scope'
 import { assertTeamInTenant } from './teams.core'
-import type { Reader } from './tx'
+import type { Reader, Tx } from './tx'
 
 export type ImportRequest = { teamId: string; rows: Array<RawLeadRow> }
 export type ImportOptions = ImportRequest & { onDuplicate: 'skip' | 'update'; distribute: 'none' | 'least_loaded' }
@@ -114,12 +115,21 @@ async function refreshDuplicates(tx: Writer, me: AuthCtx, teamId: string, duplic
   }
 }
 
+/** Só fica quem continua membro ativo até o commit: quem está saindo ou sendo desativado faz esta transação esperar e então é descartado. */
+async function lockedTeamLoads(tx: Tx, tenantId: string, teamId: string) {
+  const locked: Array<OwnerLoad> = []
+  for (const load of await teamLoads(tx, tenantId, teamId)) {
+    if (await lockActiveMember(tx, { tenantId, userId: load.id, teamId })) locked.push(load)
+  }
+  return locked
+}
+
 export async function importLeadsFor(me: AuthCtx, options: ImportOptions): Promise<ImportResult> {
   const { teamId, rows, onDuplicate, distribute } = options
   return db.transaction(async (tx) => {
     await authorizeImport(tx, me, options)
     const plans = await planImport(tx, me.tenantId, rows)
-    const loads = distribute === 'least_loaded' ? await teamLoads(tx, me.tenantId, teamId) : []
+    const loads = distribute === 'least_loaded' ? await lockedTeamLoads(tx, me.tenantId, teamId) : []
 
     const newLeads = plans.flatMap((plan) =>
       plan.kind === 'new'

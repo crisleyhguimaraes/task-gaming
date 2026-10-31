@@ -9,13 +9,14 @@ import { recordAudit } from './audit.core'
 import { listNotesFor } from './notes.core'
 import type { AuthCtx } from './roles'
 import { can, canAccessTeam, canManage, canManageWith, fail, forbid, requireCan } from './roles'
-import { activeMembersByTeam, activeMembersOf, assertMember, inTenantTeams, inTeams } from './scope'
+import { activeMembersByTeam, activeMembersOf, assertMember, inTenantTeams, inTeams, lockActiveMember } from './scope'
 import { assertTeamInTenant } from './teams.core'
 import type { Reader, Tx } from './tx'
 
 const maxDuplicateCandidates = 5
 const maxPageSize = 100
 const hiddenLeadName = 'Lead de outra equipe'
+const leadUnavailable = 'Lead indisponível: já tem dono ou não é da sua equipe'
 
 type Lead = typeof leads.$inferSelect
 
@@ -193,18 +194,26 @@ export async function deleteLeadFor(me: AuthCtx, leadId: string) {
   })
 }
 
-/** Assume um lead sem dono de qualquer equipe onde tenho vínculo e `lead.write`. O UPDATE condicional é o lock: só uma chamada concorrente leva. */
+/**
+ * Assume um lead sem dono de qualquer equipe onde tenho vínculo e `lead.write`. O UPDATE condicional é o lock: só uma chamada concorrente leva.
+ * O vínculo é conferido e travado no banco, antes do lead: o contexto pode estar velho, e a saída da equipe não enxerga um claim sem commit.
+ */
 export async function claimLeadFor(me: AuthCtx, leadId: string) {
   if (!me.memberships.length) fail('Você precisa estar em uma equipe')
   const writableTeamIds = me.memberships.map((m) => m.teamId).filter((teamId) => can(me, 'lead.write', teamId))
   if (!writableTeamIds.length) forbid()
   return db.transaction(async (tx) => {
+    const [candidate] = await tx
+      .select({ teamId: leads.teamId })
+      .from(leads)
+      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), inArray(leads.teamId, writableTeamIds)))
+    if (!candidate || !(await lockActiveMember(tx, { tenantId: me.tenantId, userId: me.userId, teamId: candidate.teamId }))) fail(leadUnavailable)
     const [lead] = await tx
       .update(leads)
       .set({ ownerId: me.userId })
-      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), inArray(leads.teamId, writableTeamIds), isNull(leads.ownerId)))
+      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), eq(leads.teamId, candidate.teamId), isNull(leads.ownerId)))
       .returning()
-    if (!lead) fail('Lead indisponível: já tem dono ou não é da sua equipe')
+    if (!lead) fail(leadUnavailable)
     await recordAudit(tx, me, { action: 'lead.claimed', entityType: 'lead', entityId: lead.id, changes: { ownerId: { from: null, to: me.userId } } })
     return lead
   })
@@ -221,7 +230,10 @@ export async function assignLeadFor(me: AuthCtx, leadId: string, ownerId: string
   })
 }
 
-/** Quem sai da equipe (`teamId`) ou é desativado (sem `teamId`) não pode manter acesso por ser o dono: leads e oportunidades abertas voltam ao pool. Oportunidade fechada é histórico e fica. */
+/**
+ * Quem sai da equipe (`teamId`) ou é desativado (sem `teamId`) não pode manter acesso por ser o dono: leads e oportunidades abertas voltam ao pool. Oportunidade fechada é histórico e fica.
+ * Leads antes das oportunidades: quem cria oportunidade segura o lead, o primeiro UPDATE o espera e o segundo já enxerga a oportunidade nova.
+ */
 export async function releaseOwnedRecords(tx: Tx, userId: string, teamId?: string) {
   const releasedLeads = await tx
     .update(leads)

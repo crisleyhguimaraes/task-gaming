@@ -76,7 +76,8 @@ type Membership = { tenantId: string; userId: string; teamId: string }
 
 /**
  * FOR SHARE no usuário e no vínculo: desativar (UPDATE do usuário) e sair da equipe (DELETE do vínculo) esperam esta transação,
- * então ninguém é atribuído a quem está saindo. A ordem usuário, vínculo não cruza com removeMember (vínculo, tarefa) nem com a desativação (usuário, tarefa).
+ * então ninguém é atribuído a quem está saindo. Os dois travam o usuário ou o vínculo e só depois as tarefas, os leads e as oportunidades de quem sai:
+ * quem chama trava aqui antes dessas linhas ou, se já segura uma delas, só confere quem não é o dono dela.
  */
 export async function lockActiveMember(tx: Tx, { tenantId, userId, teamId }: Membership) {
   const [member] = await tx
