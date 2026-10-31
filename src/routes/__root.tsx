@@ -22,7 +22,8 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR">
+    // NOTE: o script de tema grava data-theme antes da hidratação, então o HTML do servidor nunca o traz.
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
