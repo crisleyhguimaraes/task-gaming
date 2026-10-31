@@ -52,6 +52,6 @@ CREATE UNIQUE INDEX "scoring_rules_one_default_idx" ON "scoring_rules" USING btr
 ALTER TABLE "teams" ADD CONSTRAINT "teams_goal_id_goals_id_fk" FOREIGN KEY ("goal_id") REFERENCES "public"."goals"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "teams" ADD CONSTRAINT "teams_scoring_rule_id_scoring_rules_id_fk" FOREIGN KEY ("scoring_rule_id") REFERENCES "public"."scoring_rules"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 INSERT INTO "goals" ("tenant_id", "name", "target_points", "active_days", "is_default")
-SELECT "id", 'Padrão', "daily_goal_points", ARRAY[1,2,3,4,5]::smallint[], true FROM "tenants";--> statement-breakpoint
+SELECT "id", 'Padrão', LEAST(GREATEST("daily_goal_points", 10), 10000), ARRAY[1,2,3,4,5]::smallint[], true FROM "tenants";--> statement-breakpoint
 INSERT INTO "scoring_rules" ("tenant_id", "name", "is_default", "validate_below_pct", "pace_below_pct", "pace_bonus_pct", "overtime_above_pct", "overtime_step_pct", "overtime_penalty_pct", "pause_below_pct", "pause_penalty_pct", "floor_pct", "cap_multiplier", "cap_min_minutes")
 SELECT "id", 'Padrão', true, 20, 80, 15, 150, 20, 10, 40, 20, 50, 2, 30 FROM "tenants";

@@ -68,6 +68,8 @@ describe('createScoringRuleFor', () => {
     [{ capMinMinutes: 0 }, 'O teto mínimo'],
     [{ paceBonusPct: -1 }, 'não negativos'],
     [{ pausePenaltyPct: 1.5 }, 'inteiros'],
+    [{ paceBonusPct: 2_000_000_000 }, 'inteiros'],
+    [{ capMultiplier: 2_000_000_000 }, 'O multiplicador'],
   ] satisfies Array<[Partial<ScoringRules>, string]>)('recusa os parâmetros %j', async (patch, message) => {
     await expect(createScoringRuleFor(admin, generous(patch))).rejects.toThrow(message)
   })
@@ -78,6 +80,27 @@ describe('createScoringRuleFor', () => {
 
     await expect(createScoringRuleFor(admin, { ...generous(), name: `  ${name.toUpperCase()} ` })).rejects.toThrow('Já existe uma pontuação com esse nome')
     await expect(createScoringRuleFor(otherAdmin, { ...generous(), name })).resolves.toMatchObject({ name })
+  })
+})
+
+describe('limites no banco', () => {
+  const CHECK_VIOLATION = '23514'
+
+  it.each([
+    [{ paceBonusPct: 1001 }],
+    [{ overtimeAbovePct: 1001 }],
+    [{ capMultiplier: 101 }],
+    [{ capMinMinutes: 1441 }],
+  ] satisfies Array<[Partial<ScoringRules>]>)('recusa gravar direto %j', async (patch) => {
+    const insert = db.insert(scoringRules).values({ tenantId: f.tenant.id, name: uniqueName('Direta'), ...FACTORY_RULES, ...patch })
+
+    await expect(insert).rejects.toMatchObject({ cause: { code: CHECK_VIOLATION } })
+  })
+
+  it('aceita cada campo no seu teto', async () => {
+    const ceiling = { ...FACTORY_RULES, paceBonusPct: 1000, overtimeAbovePct: 1000, capMultiplier: 100, capMinMinutes: 1440 }
+
+    await expect(db.insert(scoringRules).values({ tenantId: f.tenant.id, name: uniqueName('No teto'), ...ceiling })).resolves.toBeDefined()
   })
 })
 

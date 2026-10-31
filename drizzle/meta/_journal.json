@@ -148,6 +148,13 @@
       "when": 1793465930128,
       "tag": "0020_remove_meta_diaria_do_tenant",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793468468644,
+      "tag": "0021_teto_dos_parametros_de_pontuacao",
+      "breakpoints": true
     }
   ]
 }

@@ -76,17 +76,31 @@ const PERCENT_FIELDS = [
 
 const isIntegerAtLeast = (value: number, min: number) => Number.isInteger(value) && value >= min
 
+// Sem teto, um bônus de 2 bilhões % estoura o integer de awarded_points ao concluir a tarefa. Os CHECKs de scoring_rules repetem estes limites.
+const MAX_PCT = 1000
+const MAX_CAP_MULTIPLIER = 100
+const MAX_CAP_MIN_MINUTES = 24 * 60
+
 export function validateRules(rules: ScoringRules): Array<string> {
   const checks: Array<[ok: boolean, message: string]> = [
-    [PERCENT_FIELDS.every((field) => isIntegerAtLeast(rules[field], 0)), 'Os percentuais devem ser inteiros não negativos'],
+    [
+      PERCENT_FIELDS.every((field) => isIntegerAtLeast(rules[field], 0) && rules[field] <= MAX_PCT),
+      `Os percentuais devem ser inteiros não negativos de até ${MAX_PCT}`,
+    ],
     [
       rules.validateBelowPct < rules.paceBelowPct && rules.paceBelowPct < rules.overtimeAbovePct,
       'Os limiares devem crescer: validação < ritmo < estouro',
     ],
     [isIntegerAtLeast(rules.floorPct, 1) && rules.floorPct <= 100, 'O piso deve ser de 1% a 100%'],
     [isIntegerAtLeast(rules.overtimeStepPct, 1), 'O degrau de estouro deve ser de pelo menos 1%'],
-    [isIntegerAtLeast(rules.capMultiplier, 1), 'O multiplicador do teto deve ser um inteiro de pelo menos 1'],
-    [isIntegerAtLeast(rules.capMinMinutes, 1), 'O teto mínimo deve ser um inteiro de pelo menos 1 minuto'],
+    [
+      isIntegerAtLeast(rules.capMultiplier, 1) && rules.capMultiplier <= MAX_CAP_MULTIPLIER,
+      `O multiplicador do teto deve ser um inteiro de 1 a ${MAX_CAP_MULTIPLIER}`,
+    ],
+    [
+      isIntegerAtLeast(rules.capMinMinutes, 1) && rules.capMinMinutes <= MAX_CAP_MIN_MINUTES,
+      `O teto mínimo deve ser um inteiro de 1 a ${MAX_CAP_MIN_MINUTES} minutos`,
+    ],
   ]
   return checks.filter(([ok]) => !ok).map(([, message]) => message)
 }

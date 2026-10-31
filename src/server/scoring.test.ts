@@ -131,6 +131,9 @@ describe('scoreTask com regras customizadas', () => {
   })
 })
 
+const INT4_MAX = 2 ** 31 - 1
+const HEADROOM = 1000
+
 describe('validateRules', () => {
   it('as regras de fábrica são coerentes', () => {
     expect(validateRules(FACTORY_RULES)).toEqual([])
@@ -147,8 +150,33 @@ describe('validateRules', () => {
     ['multiplicador do teto abaixo de 1', { capMultiplier: 0 }, 'multiplicador'],
     ['multiplicador do teto fracionário', { capMultiplier: 1.5 }, 'multiplicador'],
     ['teto mínimo zero', { capMinMinutes: 0 }, 'teto mínimo'],
+    ['percentual acima de 1000%', { paceBonusPct: 1001 }, 'inteiros'],
+    ['percentual de dois bilhões, que estoura o integer do banco', { paceBonusPct: 2_000_000_000 }, 'inteiros'],
+    ['limiar de estouro acima de 1000%', { overtimeAbovePct: 1001 }, 'inteiros'],
+    ['multiplicador do teto acima de 100', { capMultiplier: 101 }, 'multiplicador'],
+    ['teto mínimo acima de um dia', { capMinMinutes: 1441 }, 'teto mínimo'],
   ])('rejeita %s', (_name, change, mention) => {
     expect(validateRules({ ...FACTORY_RULES, ...change })).toEqual([expect.stringContaining(mention)])
+  })
+
+  it('aceita cada campo no seu teto, e a maior tarefa ainda pontua dentro do integer do banco', () => {
+    const ceiling = {
+      validateBelowPct: 998,
+      paceBelowPct: 999,
+      paceBonusPct: 1000,
+      overtimeAbovePct: 1000,
+      overtimeStepPct: 1000,
+      overtimePenaltyPct: 1000,
+      pauseBelowPct: 1000,
+      pausePenaltyPct: 1000,
+      floorPct: 100,
+      capMultiplier: 100,
+      capMinMinutes: 1440,
+    }
+    const biggestTask = { basePoints: 10_000, estimatedSeconds: 1000, movingSeconds: 500, elapsedSeconds: 500 }
+
+    expect(validateRules(ceiling)).toEqual([])
+    expect(scoreTask(biggestTask, ceiling).finalPoints).toBeLessThan(INT4_MAX / HEADROOM)
   })
 
   it('lista todos os erros de uma vez', () => {

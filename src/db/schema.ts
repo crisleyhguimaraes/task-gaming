@@ -127,10 +127,15 @@ export const scoringRules = pgTable(
       'scoring_rules_percents_non_negative',
       sql`${t.validateBelowPct} >= 0 and ${t.paceBelowPct} >= 0 and ${t.paceBonusPct} >= 0 and ${t.overtimeAbovePct} >= 0 and ${t.overtimeStepPct} >= 0 and ${t.overtimePenaltyPct} >= 0 and ${t.pauseBelowPct} >= 0 and ${t.pausePenaltyPct} >= 0 and ${t.floorPct} >= 0`,
     ),
+    check(
+      'scoring_rules_percents_max',
+      sql`${t.validateBelowPct} <= 1000 and ${t.paceBelowPct} <= 1000 and ${t.paceBonusPct} <= 1000 and ${t.overtimeAbovePct} <= 1000 and ${t.overtimeStepPct} <= 1000 and ${t.overtimePenaltyPct} <= 1000 and ${t.pauseBelowPct} <= 1000 and ${t.pausePenaltyPct} <= 1000`,
+    ),
     check('scoring_rules_thresholds_ascending', sql`${t.validateBelowPct} < ${t.paceBelowPct} and ${t.paceBelowPct} < ${t.overtimeAbovePct}`),
     check('scoring_rules_floor_range', sql`${t.floorPct} between 1 and 100`),
     check('scoring_rules_overtime_step_positive', sql`${t.overtimeStepPct} >= 1`),
     check('scoring_rules_cap_positive', sql`${t.capMultiplier} >= 1 and ${t.capMinMinutes} >= 1`),
+    check('scoring_rules_cap_max', sql`${t.capMultiplier} <= 100 and ${t.capMinMinutes} <= 1440`),
   ],
 )
 
