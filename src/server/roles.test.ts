@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Role, TeamRole } from '#/lib/access'
 import type { AuthCtx } from './roles'
-import { ForbiddenError, canManage, canSee, capabilities, can, defaultGrants, forbid, isManager, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
+import { ForbiddenError, canAccessTeam, canManage, canSee, capabilities, can, defaultGrants, forbid, isManager, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
 
 const A = 'team-a'
 const B = 'team-b'
@@ -186,6 +186,14 @@ describe('predicados sobre vínculos', () => {
     expect(canSee(me, { teamId: 'team-c', assignedToId: null })).toBe(false)
     expect(canSee(me, { teamId: 'team-c', assignedToId: 'me' })).toBe(true)
     expect(canSee(admin, { teamId: 'team-c', assignedToId: null })).toBe(true)
+  })
+
+  it('canAccessTeam: admin entra em qualquer equipe e os demais só nas que integram', () => {
+    expect(canAccessTeam(admin, 'qualquer')).toBe(true)
+    expect(canAccessTeam(me, A)).toBe(true)
+    expect(canAccessTeam(me, B)).toBe(true)
+    expect(canAccessTeam(me, 'team-c')).toBe(false)
+    expect(canAccessTeam(teamless, A)).toBe(false)
   })
 
   it('managedTeamIds lista só as equipes que a pessoa lidera', () => {

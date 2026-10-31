@@ -1,6 +1,6 @@
-import { and, count, eq } from 'drizzle-orm'
+import { and, asc, count, eq } from 'drizzle-orm'
 import { db } from '#/db'
-import { challenges, leads, tasks, teams, users } from '#/db/schema'
+import { challenges, leads, tasks, teamMembers, teams } from '#/db/schema'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { fail } from './roles'
@@ -24,11 +24,21 @@ export async function deleteTeamFor(me: AuthCtx, teamId: string) {
   await db.transaction(async (tx) => {
     const [team] = await tx.select().from(teams).where(and(eq(teams.id, teamId), eq(teams.tenantId, me.tenantId)))
     if (!team) fail('Equipe não encontrada')
-    for (const table of [users, tasks, challenges, leads]) {
+    for (const table of [teamMembers, tasks, challenges, leads]) {
       const [owned] = await tx.select({ n: count() }).from(table).where(and(eq(table.teamId, teamId), eq(table.tenantId, me.tenantId)))
       if (owned!.n > 0) fail('Equipe tem membros, tarefas, desafios ou leads; não pode ser excluída')
     }
     await tx.delete(teams).where(eq(teams.id, teamId))
     await recordAudit(tx, me, { action: 'team.deleted', entityType: 'team', entityId: teamId, meta: { name: team.name } })
   })
+}
+
+export function listTeamsFor(me: AuthCtx) {
+  return db
+    .select({ id: teams.id, name: teams.name, members: count(teamMembers.userId) })
+    .from(teams)
+    .leftJoin(teamMembers, eq(teamMembers.teamId, teams.id))
+    .where(eq(teams.tenantId, me.tenantId))
+    .groupBy(teams.id)
+    .orderBy(asc(teams.name))
 }

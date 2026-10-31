@@ -1,24 +1,25 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Priority } from '#/db/schema'
-import { challenges, opportunities, taskTimeLogs, tasks, teams, users } from '#/db/schema'
+import { challenges, opportunities, taskTimeLogs, tasks, teamMembers, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import { scoringAttempt, validAttempt } from './challenges.core'
 import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
-import { canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
-import { assertMember, inTeams, usersInScope } from './scope'
+import { canAccessTeam, canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
+import { activeMembersByTeam, assertMember, inManagedTeams, inTeams, usersInScope } from './scope'
 import { scoreTask } from './scoring'
-import { localDay, localDayOf, tenantSettings } from './stats'
+import { inOpen, localDay, localDayOf, tenantSettings } from './stats'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
 import type { Tx } from './tx'
 
 export { canManage, canSee, fail, isAdmin }
 
 /** Fecha logs abertos que casem com `where`, aplicando o teto. Retorna os taskIds afetados. */
-async function closeOpenLogs(tx: Tx, where: ReturnType<typeof eq>, now: Date) {
+async function closeOpenLogs(tx: Tx, where: SQL | undefined, now: Date) {
   const open = await tx
     .select({ id: taskTimeLogs.id, taskId: taskTimeLogs.taskId, startedAt: taskTimeLogs.startedAt, est: tasks.estimatedSeconds })
     .from(taskTimeLogs)
@@ -45,10 +46,36 @@ async function loadTask(tx: Tx, me: AuthCtx, taskId: string) {
 /** Tentativa de desafio é do executor: nem o líder pausa ou conclui por ele. */
 const canOperate = (me: AuthCtx, task: Task) => task.assignedToId === me.userId || (task.challengeId === null && canManage(me, task))
 
+/** Tira o trabalho aberto de `userId` (só o de `teamId`, se dada). Tentativa de desafio é cancelada: o pool a ignora e ela ficaria órfã. */
+export async function releaseOpenWork(tx: Tx, userId: string, teamId?: string) {
+  const inTeam = teamId ? eq(tasks.teamId, teamId) : undefined
+  const owned = and(eq(tasks.assignedToId, userId), inOpen(), inTeam)
+  await closeOpenLogs(tx, and(eq(taskTimeLogs.userId, userId), inTeam), new Date())
+  await tx.update(tasks).set({ status: 'cancelled' }).where(and(owned, isNotNull(tasks.challengeId)))
+  await tx.update(tasks).set({ status: 'pending', assignedToId: null }).where(and(owned, isNull(tasks.challengeId)))
+}
+
+/**
+ * Trava o vínculo de quem inicia com a equipe da tarefa, no banco e não no contexto (que pode estar velho).
+ * Sair da equipe apaga o vínculo e devolve o trabalho: com o vínculo travado, ou a saída espera esta transação, ou esta não acha o vínculo.
+ * Vem antes de travar a tarefa para seguir a mesma ordem de removeMember (vínculo, depois tarefa) e não dar impasse.
+ */
+async function lockMembership(tx: Tx, me: AuthCtx, taskId: string) {
+  if (isAdmin(me)) return
+  const [link] = await tx
+    .select({ userId: teamMembers.userId })
+    .from(teamMembers)
+    .innerJoin(tasks, eq(tasks.teamId, teamMembers.teamId))
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId), eq(teamMembers.userId, me.userId)))
+    .for('share', { of: teamMembers })
+  if (!link) fail('Tarefa não encontrada')
+}
+
 /** Inicia (ou retoma / puxa do pool). Pausa qualquer outra tarefa do usuário. */
 export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
   return db.transaction(async (tx) => {
     // Antes de qualquer consulta que devolva dado da tarefa: fora do tenant ou da visibilidade, ela não existe.
+    await lockMembership(tx, me, taskId)
     await loadTask(tx, me, taskId)
     const [blocker] = await openBlockers(tx, [taskId]).limit(1)
     if (blocker) fail(`Bloqueada: depende de "${blocker.title}"`)
@@ -70,7 +97,6 @@ export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()
           eq(tasks.tenantId, me.tenantId),
           inArray(tasks.status, ['pending', 'paused']),
           or(isNull(tasks.assignedToId), eq(tasks.assignedToId, me.userId)),
-          inTeams(tasks.teamId, me),
         ),
       )
       .returning()
@@ -175,7 +201,7 @@ export async function attemptChallengeFor(me: AuthCtx, challengeId: string, now 
     .select()
     .from(challenges)
     .where(and(eq(challenges.id, challengeId), eq(challenges.tenantId, me.tenantId), isNull(challenges.archivedAt)))
-  if (!c || (!isAdmin(me) && c.teamId !== me.teamId)) fail('Desafio não encontrado')
+  if (!c || !canAccessTeam(me, c.teamId)) fail('Desafio não encontrado')
   // O índice tasks_open_attempt_idx deixa passar uma tentativa aberta por pessoa; no clique duplo a segunda inserção vira no-op.
   const [created] = await db
     .insert(tasks)
@@ -479,4 +505,14 @@ export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
 /** Quem pode aparecer como responsável no filtro do board, no mesmo escopo da lista. */
 export function boardMembersFor(me: AuthCtx, teamId?: string) {
   return db.select({ id: users.id, name: users.name }).from(users).where(usersInScope(me, { only: teamId })).orderBy(asc(users.name))
+}
+
+/** O que o formulário de tarefa oferece: as equipes que `me` gerencia (admin, todas) e os membros ativos de cada uma. */
+export async function taskFormOptionsFor(me: AuthCtx) {
+  const teamList = await db
+    .select({ id: teams.id, name: teams.name })
+    .from(teams)
+    .where(and(eq(teams.tenantId, me.tenantId), inManagedTeams(teams.id, me)))
+    .orderBy(asc(teams.name))
+  return { teams: teamList, members: await activeMembersByTeam(db, me.tenantId, teamList.map((t) => t.id)) }
 }

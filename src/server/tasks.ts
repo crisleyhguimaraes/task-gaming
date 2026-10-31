@@ -1,14 +1,14 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { taskDependencies, tasks, teams, users } from '#/db/schema'
 import { authMiddleware } from './auth-context'
 import { canManage, canSee, fail, isAdmin } from './roles'
-import { activeMembersOf, inTeams } from './scope'
-import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
+import { teamsOfUser } from './team-members.core'
+import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
 import { capFor } from './time'
-import { heroStats, pointsByDay, ranking, streak, teamFeed, tenantSettings, todayProgress, totalPoints } from './stats'
+import { heroStats, poolOf, pointsByDay, streak, teamFeed, teamPageFor, tenantSettings, todayProgress, totalPoints } from './stats'
 import { listChallengesFor } from './challenges.core'
 import { blockedSet, openBlockers } from './dependencies.core'
 
@@ -95,21 +95,7 @@ export const validatePoints = createServerFn({ method: 'POST' })
 export const getTeam = createServerFn()
   .middleware([authMiddleware])
   .validator(z.object({ period: z.enum(['day', 'week', 'all']).default('week'), teamId: z.uuid().optional() }))
-  .handler(async ({ data, context: { auth: me } }) => {
-    const { timezone } = await tenantSettings(me.tenantId)
-    const teamList = isAdmin(me)
-      ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
-      : []
-    const teamId = isAdmin(me) ? (data.teamId ?? null) : me.teamId
-    return {
-      teams: teamList,
-      teamId,
-      period: data.period,
-      ranking: await ranking(me, data.period, timezone, teamId ?? undefined),
-      feed: teamId ? await teamFeed(teamId) : null,
-      canManage: canManage(me, { teamId: teamId ?? '' }),
-    }
-  })
+  .handler(({ data, context: { auth: me } }) => teamPageFor(me, data))
 
 /** Tela "Hoje": progresso do dia, tarefa ativa e minha fila. */
 export const getToday = createServerFn()
@@ -124,18 +110,7 @@ export const getToday = createServerFn()
       .where(and(eq(tasks.tenantId, me.tenantId), eq(tasks.assignedToId, me.userId), inArray(tasks.status, ['pending', 'paused'])))
       .orderBy(desc(tasks.status), asc(tasks.createdAt))
     const challenges = await listChallengesFor(me)
-    const [u] = await db
-      .select({ createdAt: users.createdAt, teamName: teams.name })
-      .from(users)
-      .leftJoin(teams, eq(teams.id, users.teamId))
-      .where(eq(users.id, me.userId))
-    const pool = me.teamId
-      ? await db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.teamId, me.teamId), eq(tasks.status, 'pending'), isNull(tasks.assignedToId), isNull(tasks.challengeId)))
-          .orderBy(asc(tasks.createdAt))
-      : []
+    const [u] = await db.select({ createdAt: users.createdAt }).from(users).where(eq(users.id, me.userId))
     const hero = await heroStats(me.userId)
     return {
       settings,
@@ -143,33 +118,21 @@ export const getToday = createServerFn()
       streak: await streak(me.userId, settings.timezone),
       totalPoints: await totalPoints(me.userId),
       daysInCompany: u ? Math.floor((Date.now() - u.createdAt.getTime()) / 86_400_000) : 0,
-      teamName: u?.teamName ?? null,
+      teams: await teamsOfUser(db, me.userId),
       hero: { ...hero, recordes: challenges.filter((c) => c.record?.holderId === me.userId).length },
       pointsByDay: await pointsByDay(me.userId, settings.timezone),
-      teamNow: me.teamId ? (await teamFeed(me.teamId)).activeNow : [],
+      teamNow: me.memberships.length ? (await teamFeed(me, me.memberships.map((m) => m.teamId))).activeNow : [],
       active,
       queue: queue.filter((t) => t.id !== active?.id),
-      pool,
+      pool: await poolOf(me),
       challenges,
     }
   })
 
-/** Equipes + membros que o usuário pode atribuir (form de nova tarefa). */
+/** Equipes que o usuário gerencia + membros ativos delas (form de nova tarefa). */
 export const getTaskFormOptions = createServerFn()
   .middleware([authMiddleware])
-  .handler(async ({ context: { auth: me } }) => {
-    const teamList = await db
-      .select({ id: teams.id, name: teams.name })
-      .from(teams)
-      .where(and(eq(teams.tenantId, me.tenantId), inTeams(teams.id, me)))
-      .orderBy(asc(teams.name))
-    const memberList = await db
-      .select({ id: users.id, name: users.name, teamId: users.teamId })
-      .from(users)
-      .where(activeMembersOf(me.tenantId, teamList.map((t) => t.id)))
-      .orderBy(asc(users.name))
-    return { teams: teamList, members: memberList }
-  })
+  .handler(({ context: { auth: me } }) => taskFormOptionsFor(me))
 
 // --- Board (fase 4) ---------------------------------------------------------
 

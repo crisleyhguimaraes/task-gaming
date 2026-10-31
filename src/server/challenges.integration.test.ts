@@ -8,7 +8,7 @@ import { challengeRanking, createChallengeFor, listChallengesFor } from './chall
 import { ForbiddenError } from './roles'
 import type { AuthCtx } from './roles'
 import { attemptChallengeFor, cancelTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, startTaskFor, updateTaskFor, validatePointsFor } from './tasks.core'
-import { addUser, makeTenant } from './test-fixtures'
+import { addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 const min = (n: number) => n * 60
@@ -349,5 +349,37 @@ describe('criar desafio', () => {
     expect(c.scoredAttemptsPerDay).toBe(3)
     const [event] = await db.select().from(auditEvents).where(eq(auditEvents.entityId, c.id))
     expect(event!.meta).toMatchObject({ scoredAttemptsPerDay: 3 })
+  })
+})
+
+describe('desafio de equipe onde a pessoa é membro, entre várias', () => {
+  const data = { title: 'Da B', basePoints: 50, estimatedMinutes: 10, scoredAttemptsPerDay: 1 }
+
+  const memberOfAAndB = async () => {
+    const teamB = await addTeam(f, 'B-desafio')
+    const me = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB)
+    return { teamB, me }
+  }
+
+  it('cria, vê e tenta desafio da equipe que só integra', async () => {
+    const { teamB, me } = await memberOfAAndB()
+
+    const created = await createChallengeFor(me, { ...data, teamId: teamB.id })
+
+    expect((await listChallengesFor(me)).map((c) => c.id)).toContain(created.id)
+    const attempt = await attemptChallengeFor(me, created.id)
+    expect(attempt).toMatchObject({ challengeId: created.id, teamId: teamB.id, assignedToId: me.userId, status: 'in_progress' })
+  })
+
+  it('não cria nem tenta desafio de equipe onde não é membro', async () => {
+    const { me } = await memberOfAAndB()
+    const outsideTeam = await addTeam(f, 'Fora')
+    const [foreign] = await db
+      .insert(challenges)
+      .values({ tenantId: f.tenant.id, teamId: outsideTeam.id, createdById: f.leader.userId, title: 'Alheio', basePoints: 10, estimatedSeconds: min(5) })
+      .returning()
+
+    await expect(createChallengeFor(me, { ...data, teamId: outsideTeam.id })).rejects.toThrow('Você só cria desafios para a sua equipe')
+    await expect(attemptChallengeFor(me, foreign!.id)).rejects.toThrow('Desafio não encontrado')
   })
 })

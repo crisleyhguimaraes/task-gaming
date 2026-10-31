@@ -1,11 +1,12 @@
-import { and, eq, ne } from 'drizzle-orm'
+import { and, asc, eq, ne } from 'drizzle-orm'
 import type { Role, TeamRole } from '#/db/schema'
-import { teamMembers, users } from '#/db/schema'
+import { teamMembers, teams, users } from '#/db/schema'
 import type { Actor } from './audit.core'
 import { recordAudit } from './audit.core'
 import { fail } from './roles'
 import { assertTeamInTenant } from './teams.core'
-import type { Tx } from './tx'
+import { releaseOpenWork } from './tasks.core'
+import type { Reader, Tx } from './tx'
 
 type Membership = { teamId: string; userId: string }
 
@@ -19,6 +20,16 @@ async function assertInTenant(tx: Tx, actor: Actor, { teamId, userId }: Membersh
     .where(and(eq(users.id, userId), eq(users.tenantId, actor.tenantId), ne(users.role, 'SUPER_ADMIN')))
   if (!user) fail('Usuário não encontrado')
 }
+
+export const teamsOfUser = (tx: Reader, userId: string) =>
+  tx
+    .select({ id: teams.id, name: teams.name, role: teamMembers.role })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+    .where(eq(teamMembers.userId, userId))
+    .orderBy(asc(teams.name))
+
+export const teamIdsOfUser = async (tx: Reader, userId: string) => (await teamsOfUser(tx, userId)).map((t) => t.id)
 
 const isMember = ({ teamId, userId }: Membership) => and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))
 
@@ -53,6 +64,7 @@ export async function removeMember(tx: Tx, actor: Actor, membership: Membership)
   await assertInTenant(tx, actor, membership)
   const [removed] = await tx.delete(teamMembers).where(isMember(membership)).returning({ role: teamMembers.role })
   if (!removed) return
+  await releaseOpenWork(tx, membership.userId, membership.teamId)
   await recordAudit(tx, actor, { action: 'team.member_removed', entityType: 'team', entityId: membership.teamId, meta: { userId: membership.userId, role: removed.role } })
 }
 

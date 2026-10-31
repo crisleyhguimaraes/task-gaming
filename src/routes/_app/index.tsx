@@ -8,7 +8,7 @@ import { PointsChart } from '#/components/PointsChart'
 import { Ring } from '#/components/Ring'
 import { Pill, StatTile } from '#/components/StatTile'
 import { appRoute } from '#/lib/app-route'
-import { fmtClock, fmtDuration, roleLabel } from '#/lib/format'
+import { displayRole, fmtClock, fmtDuration } from '#/lib/format'
 import { useElapsed } from '#/lib/useElapsed'
 import { isManager } from '#/server/auth-context'
 import { levelFor } from '#/server/levels'
@@ -56,7 +56,7 @@ function Today() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{me.name}</h1>
             <p className="text-sm text-neutral-400">
-              {roleLabel[me.role]}{d.teamName ? ` · ${d.teamName}` : ''}
+              {displayRole(me)}{d.teams.length > 0 ? ` · ${d.teams.map((t) => t.name).join(', ')}` : ''}
             </p>
           </div>
           <div className="flex flex-wrap gap-6">

@@ -2,9 +2,9 @@ import { createServerFn } from '@tanstack/react-start'
 import { asc, count, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
-import { teams, tenants, users } from '#/db/schema'
+import { tenants, users } from '#/db/schema'
 import { authMiddleware, requireCan } from './auth-context'
-import { createTenantAdminFor, createTenantFor } from './tenants.core'
+import { createTenantAdminFor, createTenantFor, tenantMembersOf } from './tenants.core'
 
 export const listTenants = createServerFn()
   .middleware([authMiddleware])
@@ -45,12 +45,7 @@ export const getTenant = createServerFn()
     requireCan(context.auth, 'tenant.manage')
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, data.tenantId))
     if (!tenant) throw new Error('Tenant não encontrado')
-    const members = await db
-      .select({ id: users.id, name: users.name, email: users.email, role: users.role, teamName: teams.name })
-      .from(users)
-      .leftJoin(teams, eq(teams.id, users.teamId))
-      .where(eq(users.tenantId, data.tenantId))
-      .orderBy(asc(users.name))
+    const members = await tenantMembersOf(data.tenantId)
     return { tenant, members }
   })
 

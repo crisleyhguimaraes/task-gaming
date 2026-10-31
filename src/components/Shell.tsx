@@ -3,11 +3,12 @@ import * as React from 'react'
 import { Building2, ChevronDown, ClipboardList, Columns3, ContactRound, Flame, Funnel, Handshake, LogOut, Moon, ScrollText, Settings, ShieldCheck, SlidersHorizontal, Sun, SunMedium, Trophy, UserCircle, UserCog, Users, UsersRound } from 'lucide-react'
 import { authClient } from '#/lib/auth-client'
 import { appRoute } from '#/lib/app-route'
-import { fmtClock, roleLabel } from '#/lib/format'
+import { displayRole, fmtClock } from '#/lib/format'
 import { useElapsed } from '#/lib/useElapsed'
 import { getTheme, setTheme } from '#/lib/theme'
 import type { Theme } from '#/lib/theme'
 import { levelFor } from '#/server/levels'
+import type { AuthCtx } from '#/server/roles'
 import { can } from '#/server/roles'
 import { Avatar } from './Avatar'
 import { NotificationBell } from './NotificationBell'
@@ -74,7 +75,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <Avatar name={me.name} size="xl" />
           <div>
             <div className="font-semibold">{me.name}</div>
-            <div className="text-xs text-neutral-400">{roleLabel[me.role]}</div>
+            <div className="text-xs text-neutral-400">{displayRole(me)}</div>
           </div>
           <div className="w-full space-y-1.5 pt-2">
             <div className="flex justify-between text-xs">
@@ -143,7 +144,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 const roundBtn = 'relative flex h-11 w-11 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-300 shadow-sm hover:text-neutral-50'
 
 /** Topo à direita: tema, sino de atenção e avatar com o menu do usuário. */
-function HeaderActions({ me, attention, onSignOut }: { me: { name: string; role: string }; attention: { pool: number; validation: number }; onSignOut: () => void }) {
+function HeaderActions({ me, attention, onSignOut }: { me: Pick<AuthCtx, 'name' | 'role' | 'memberships'>; attention: { pool: number; validation: number }; onSignOut: () => void }) {
   const [theme, setThemeState] = React.useState<Theme>('dark')
   React.useEffect(() => setThemeState(getTheme()), [])
   const choose = (t: Theme) => {
@@ -178,7 +179,7 @@ function HeaderActions({ me, attention, onSignOut }: { me: { name: string; role:
             <Avatar name={me.name} />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{me.name}</div>
-              <div className="truncate text-xs text-neutral-400">{roleLabel[me.role]}</div>
+              <div className="truncate text-xs text-neutral-400">{displayRole(me)}</div>
             </div>
           </div>
           <div className="my-1 border-t border-neutral-800" />

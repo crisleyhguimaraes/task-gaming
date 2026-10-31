@@ -1,24 +1,20 @@
 import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
-import { appRoute } from '#/lib/app-route'
 import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
-import { isManager } from '#/server/auth-context'
 import { createChallenge } from '#/server/challenges'
-import { getTaskFormOptions } from '#/server/tasks'
+import { getLeadOptions } from '#/server/leads'
 
 export const Route = createFileRoute('/_app/challenges/new')({
-  loader: () => getTaskFormOptions(),
+  loader: () => getLeadOptions(),
   component: NewChallenge,
 })
 
 function NewChallenge() {
-  const { me } = appRoute.useRouteContext()
-  const { teams } = Route.useLoaderData()
+  const { teams: myTeams } = Route.useLoaderData()
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const myTeams = isManager(me) ? teams : teams.filter((t) => t.id === me.teamId)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()

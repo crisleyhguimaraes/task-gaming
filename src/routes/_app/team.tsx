@@ -134,14 +134,14 @@ function Team() {
         <h2 className="text-sm font-semibold text-neutral-300">Ranking</h2>
         <ol className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
           {data.ranking.map((r, i) => (
-            <li key={r.userId} className={`flex items-center justify-between px-4 py-3 ${r.userId === me.userId ? 'bg-xp-950/10' : ''}`}>
+            <li key={`${r.teamId}:${r.userId}`} className={`flex items-center justify-between px-4 py-3 ${r.userId === me.userId ? 'bg-xp-950/10' : ''}`}>
               <div className="flex items-center gap-3">
                 <span className={`w-5 text-center text-sm font-bold ${i === 0 && r.points > 0 ? 'text-xp-400' : 'text-neutral-500'}`}>{i + 1}</span>
                 <Avatar name={r.name} />
                 <div>
                   <div className="text-sm font-medium">{r.name}</div>
                   <div className="text-[11px] text-neutral-500">
-                    {r.teamName ?? 'sem equipe'} · {r.finished} concluída{r.finished === 1 ? '' : 's'} · <Clock className="inline h-3 w-3" /> {fmtDuration(r.movingSeconds)}
+                    {r.teamName} · {r.finished} concluída{r.finished === 1 ? '' : 's'} · <Clock className="inline h-3 w-3" /> {fmtDuration(r.movingSeconds)}
                   </div>
                 </div>
               </div>

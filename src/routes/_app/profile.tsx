@@ -7,7 +7,7 @@ import { StatTile } from '#/components/StatTile'
 import { TwoFactorCard } from '#/components/TwoFactorCard'
 import { appRoute } from '#/lib/app-route'
 import { authClient } from '#/lib/auth-client'
-import { roleLabel } from '#/lib/format'
+import { displayRole } from '#/lib/format'
 import { levelFor } from '#/server/levels'
 import { getProfile, updateProfile } from '#/server/profile'
 import { getTwoFactorStatus } from '#/server/two-factor'
@@ -68,7 +68,7 @@ function Profile() {
           <div className="text-xl font-bold">{p.name}</div>
           <div className="text-sm text-neutral-400">{p.email}</div>
           <div className="mt-1 text-sm text-neutral-300">
-            {roleLabel[me.role]}{p.teamName ? ` · ${p.teamName}` : ''}
+            {displayRole(me)}{p.teams.length > 0 ? ` · ${p.teams.map((t) => t.name).join(', ')}` : ''}
           </div>
           <div className="mt-2 text-sm">
             <span className="font-semibold text-xp-400">Nível {level.level} · {level.name}</span>

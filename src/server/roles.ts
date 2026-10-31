@@ -125,6 +125,9 @@ export const roleIn = (me: Pick<AuthCtx, 'memberships'>, teamId: string): TeamRo
 /** Admin gerencia tudo do tenant; líder gerencia as equipes que lidera. */
 export const canManage = (me: Pick<AuthCtx, 'role' | 'memberships'>, record: { teamId: string }) => isAdmin(me) || roleIn(me, record.teamId) === 'LEADER'
 
+/** Admin entra em qualquer equipe do tenant; os demais, nas que integram. */
+export const canAccessTeam = (me: Pick<AuthCtx, 'role' | 'memberships'>, teamId: string) => isAdmin(me) || roleIn(me, teamId) !== null
+
 export const canSee = (me: Pick<AuthCtx, 'userId' | 'role' | 'memberships'>, record: { teamId: string; assignedToId: string | null }) =>
   canManage(me, record) || record.assignedToId === me.userId || roleIn(me, record.teamId) !== null
 

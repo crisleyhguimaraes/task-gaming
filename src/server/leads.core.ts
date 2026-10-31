@@ -9,7 +9,7 @@ import { recordAudit } from './audit.core'
 import { listNotesFor } from './notes.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail, forbid } from './roles'
-import { activeMembersOf, assertMember, inTenantTeams, inTeams } from './scope'
+import { activeMembersByTeam, activeMembersOf, assertMember, inMemberTeams, inTenantTeams, inTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
 import type { Reader } from './tx'
 
@@ -196,14 +196,14 @@ export async function deleteLeadFor(me: AuthCtx, leadId: string) {
   })
 }
 
-/** Assume um lead sem dono da própria equipe. O UPDATE condicional é o lock: só uma chamada concorrente leva. */
+/** Assume um lead sem dono de qualquer equipe onde tenho vínculo. O UPDATE condicional é o lock: só uma chamada concorrente leva. */
 export async function claimLeadFor(me: AuthCtx, leadId: string) {
-  if (!me.teamId) fail('Você precisa estar em uma equipe')
+  if (!me.memberships.length) fail('Você precisa estar em uma equipe')
   return db.transaction(async (tx) => {
     const [lead] = await tx
       .update(leads)
       .set({ ownerId: me.userId })
-      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), eq(leads.teamId, me.teamId!), isNull(leads.ownerId)))
+      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), inMemberTeams(leads.teamId, me), isNull(leads.ownerId)))
       .returning()
     if (!lead) fail('Lead indisponível: já tem dono ou não é da sua equipe')
     await recordAudit(tx, me, { action: 'lead.claimed', entityType: 'lead', entityId: lead.id, changes: { ownerId: { from: null, to: me.userId } } })
@@ -228,11 +228,7 @@ export async function leadOptionsFor(me: AuthCtx) {
     .from(teams)
     .where(and(eq(teams.tenantId, me.tenantId), inTeams(teams.id, me)))
     .orderBy(asc(teams.name))
-  const members = await db
-    .select({ id: users.id, name: users.name, teamId: users.teamId })
-    .from(users)
-    .where(activeMembersOf(me.tenantId, teamList.map((t) => t.id)))
-    .orderBy(asc(users.name))
+  const members = await activeMembersByTeam(db, me.tenantId, teamList.map((t) => t.id))
   return { teams: teamList, members }
 }
 

@@ -1,3 +1,6 @@
+import type { AuthCtx } from '#/server/roles'
+import { isAdmin, isManager } from '#/server/roles'
+
 const pad = (n: number) => n.toString().padStart(2, '0')
 
 /** 05:03 ou 1:05:03 */
@@ -23,3 +26,7 @@ export const roleLabel: Record<string, string> = {
   TEAM_LEADER: 'Líder de equipe',
   MEMBER: 'Membro',
 }
+
+/** Admin mostra o papel de tenant; os demais, o que fazem nas equipes: o `users.role` legado de líder não conta sem vínculo de líder. */
+export const displayRole = (me: Pick<AuthCtx, 'role' | 'memberships'>) =>
+  isAdmin(me) ? roleLabel[me.role] : isManager(me) ? roleLabel.TEAM_LEADER : roleLabel.MEMBER

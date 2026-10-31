@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { challenges, leads, pipelineStages, tenants } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { createTeamFor, deleteTeamFor } from './teams.core'
-import { addAdmin, addUser, makeTenant } from './test-fixtures'
-import { createTenantFor } from './tenants.core'
+import { createTeamFor, deleteTeamFor, listTeamsFor } from './teams.core'
+import { addAdmin, addUser, joinTeam, makeTenant } from './test-fixtures'
+import { createTenantFor, tenantMembersOf } from './tenants.core'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 let admin: AuthCtx
@@ -60,9 +60,42 @@ describe('excluir equipe', () => {
     await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('Equipe tem membros, tarefas, desafios ou leads')
   })
 
+  it('recusa equipe cujo único membro tem vínculo só em team_members', async () => {
+    const team = await createTeamFor(admin, 'Só vínculo')
+    await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: null })).userId, team)
+
+    await expect(deleteTeamFor(admin, team.id)).rejects.toThrow('Equipe tem membros, tarefas, desafios ou leads')
+  })
+
   it('exclui equipe vazia', async () => {
     const team = await createTeamFor(admin, 'Vazia')
 
     await expect(deleteTeamFor(admin, team.id)).resolves.toBeUndefined()
+  })
+})
+
+describe('listas por vínculo', () => {
+  it('listTeamsFor conta os membros por team_members', async () => {
+    const team = await createTeamFor(admin, 'Contada')
+    const second = await createTeamFor(admin, 'Outra contada')
+    const [a, b] = [await addUser(f, { role: 'MEMBER', team }), await addUser(f, { role: 'MEMBER', team: null })]
+    await joinTeam(f, b.userId, team)
+    await joinTeam(f, a.userId, second)
+
+    const list = await listTeamsFor(admin)
+
+    expect(list.find((t) => t.id === team.id)).toMatchObject({ members: 2 })
+    expect(list.find((t) => t.id === second.id)).toMatchObject({ members: 1 })
+  })
+
+  it('tenantMembersOf traz todas as equipes de cada pessoa', async () => {
+    const [x, y] = [await createTeamFor(admin, 'X-sa'), await createTeamFor(admin, 'Y-sa')]
+    const both = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: x })).userId, y)
+    const none = await addUser(f, { role: 'MEMBER', team: null })
+
+    const members = await tenantMembersOf(f.tenant.id)
+
+    expect(members.find((m) => m.id === both.userId)!.teams).toEqual(['X-sa', 'Y-sa'])
+    expect(members.find((m) => m.id === none.userId)!.teams).toEqual([])
   })
 })

@@ -1,58 +1,45 @@
-import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Role } from '#/db/schema'
-import { sessions, taskTimeLogs, tasks, teams, users } from '#/db/schema'
+import { sessions, teamMembers, teams, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import type { AuthCtx, Capability } from './roles'
 import { fail, requireCan } from './roles'
-import { assertWithinScope, usersInScope } from './scope'
+import { assertWithinScope, teamIdsFrom, usersInScope } from './scope'
 import { assertTeamInTenant } from './teams.core'
-import { addMember, removeMember, teamRoleOf } from './team-members.core'
-import { closeLogDuration } from './time'
-import type { Reader, Tx } from './tx'
+import { addMember, removeMember, teamIdsOfUser, teamRoleOf } from './team-members.core'
+import { releaseOpenWork } from './tasks.core'
+import type { Reader } from './tx'
 
 export type AssignableRole = Exclude<Role, 'SUPER_ADMIN'>
 
 async function findUserInScope(tx: Reader, me: AuthCtx, userId: string, capability: Capability) {
   const [u] = await tx.select().from(users).where(and(eq(users.id, userId), eq(users.tenantId, me.tenantId), ne(users.role, 'SUPER_ADMIN')))
   if (!u) fail('Usuário não encontrado')
-  assertWithinScope(me, u, capability)
+  assertWithinScope(me, { role: u.role, teamIds: await teamIdsOfUser(tx, u.id) }, capability)
   return u
 }
 
 export async function listUsersFor(me: AuthCtx) {
   requireCan(me, 'user.read')
   const list = await db
-    .select({ id: users.id, name: users.name, email: users.email, role: users.role, banned: users.banned, teamId: users.teamId, teamName: teams.name })
+    .select({ id: users.id, name: users.name, email: users.email, role: users.role, banned: users.banned })
     .from(users)
-    .leftJoin(teams, eq(teams.id, users.teamId))
     .where(and(usersInScope(me, { capability: 'user.read' }), ne(users.role, 'SUPER_ADMIN')))
     .orderBy(asc(users.name))
+  const links = await db
+    .select({ userId: teamMembers.userId, teamId: teamMembers.teamId, teamName: teams.name, role: teamMembers.role })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+    .where(and(eq(teamMembers.tenantId, me.tenantId), inArray(teamMembers.userId, list.map((u) => u.id))))
+    .orderBy(asc(teams.name))
   const teamList = await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
-  return { users: list, teams: teamList }
-}
-
-export async function releaseOpenWork(tx: Pick<typeof db, 'select' | 'update'>, userId: string) {
-  const now = new Date()
-  const open = await tx
-    .select({ id: taskTimeLogs.id, startedAt: taskTimeLogs.startedAt, est: tasks.estimatedSeconds })
-    .from(taskTimeLogs)
-    .innerJoin(tasks, eq(tasks.id, taskTimeLogs.taskId))
-    .where(and(eq(taskTimeLogs.userId, userId), isNull(taskTimeLogs.stoppedAt)))
-  for (const l of open) {
-    await tx.update(taskTimeLogs).set({ stoppedAt: now, durationSeconds: closeLogDuration(l.startedAt, now, l.est) }).where(eq(taskTimeLogs.id, l.id))
+  return {
+    users: list.map((u) => ({ ...u, memberships: links.filter((l) => l.userId === u.id).map(({ teamId, teamName, role }) => ({ teamId, teamName, role })) })),
+    teams: teamList,
   }
-  await tx
-    .update(tasks)
-    .set({ assignedToId: null, status: 'pending' })
-    .where(and(eq(tasks.assignedToId, userId), inArray(tasks.status, ['pending', 'in_progress', 'paused'])))
-}
-
-async function leaveTeam(tx: Tx, me: AuthCtx, user: { id: string; teamId: string | null }) {
-  await releaseOpenWork(tx, user.id)
-  if (user.teamId) await removeMember(tx, me, { teamId: user.teamId, userId: user.id })
 }
 
 /** Muda equipe/papel. Tarefas abertas na equipe antiga voltam pro pool (regra de órfãs). */
@@ -61,8 +48,9 @@ export async function updateUserCore(me: AuthCtx, data: { userId: string; teamId
     await assertTeamInTenant(tx, me.tenantId, data.teamId)
     const u = await findUserInScope(tx, me, data.userId, 'user.update')
     if (u.id === me.userId && u.role !== data.role) fail('Você não pode alterar o próprio papel')
-    assertWithinScope(me, { role: data.role, teamId: data.teamId }, 'user.update')
-    if (u.teamId !== data.teamId) await leaveTeam(tx, me, u)
+    assertWithinScope(me, { role: data.role, teamIds: teamIdsFrom(data.teamId) }, 'user.update')
+    // NOTE: a tela edita uma equipe só, a de users.team_id; a 1b-iii a troca por vínculos e a 1c remove a coluna.
+    if (u.teamId && u.teamId !== data.teamId) await removeMember(tx, me, { teamId: u.teamId, userId: u.id })
     const [updated] = await tx.update(users).set({ teamId: data.teamId, role: data.role }).where(eq(users.id, u.id)).returning()
     if (data.teamId) await addMember(tx, me, { teamId: data.teamId, userId: u.id, role: teamRoleOf(data.role) })
     const changes = diffFields(u, updated!, ['role', 'teamId'])
@@ -94,7 +82,7 @@ export async function reactivateUserCore(me: AuthCtx, userId: string) {
 }
 
 export async function createUserFor(me: AuthCtx, data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole }) {
-  assertWithinScope(me, data, 'user.create')
+  assertWithinScope(me, { role: data.role, teamIds: teamIdsFrom(data.teamId) }, 'user.create')
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const { user } = await auth.api.createUser({
     body: {

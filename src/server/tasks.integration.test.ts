@@ -1,9 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { taskDependencies, taskTimeLogs, tasks, users } from '#/db/schema'
-import { boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskListWhere, updateTaskFor, validatePointsFor } from './tasks.core'
-import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
+import { taskDependencies, taskTimeLogs, tasks, teamMembers, users } from '#/db/schema'
+import { boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, updateTaskFor, validatePointsFor } from './tasks.core'
+import { removeMember } from './team-members.core'
+import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 const min = (n: number) => n * 60
@@ -213,5 +214,113 @@ describe('responsável da tarefa', () => {
     await expect(
       updateTaskFor(f.leader, { taskId: task.id, title: 'T', basePoints: 100, estimatedMinutes: 10, priority: 'medium', dueDate: null, scheduledStart: null, scheduledEnd: null, assignedToId: deactivated.userId }),
     ).rejects.toThrow('Responsável não pertence à equipe')
+  })
+})
+
+describe('startTaskFor lê o vínculo no banco, não no contexto', () => {
+  const leave = async (userId: string) => {
+    const admin = await addUser(f, { role: 'TENANT_ADMIN', team: null })
+    await db.transaction((tx) => removeMember(tx, admin, { teamId: f.team.id, userId }))
+  }
+  const taskRow = async (id: string) => (await db.select().from(tasks).where(eq(tasks.id, id)))[0]!
+  const isMember = async (userId: string) => (await db.select().from(teamMembers).where(eq(teamMembers.userId, userId))).some((m) => m.teamId === f.team.id)
+
+  it('quem acabou de sair da equipe não pega tarefa do pool com o contexto velho', async () => {
+    const stale = await addUser(f, { role: 'MEMBER', team: f.team })
+    const pool = await newTask(null)
+    await leave(stale.userId)
+
+    await expect(startTaskFor(stale, pool.id)).rejects.toThrow('Tarefa não encontrada')
+
+    expect(await taskRow(pool.id)).toMatchObject({ assignedToId: null, status: 'pending' })
+  })
+
+  it('sair da equipe e iniciar ao mesmo tempo nunca deixa a tarefa com quem já não é membro', async () => {
+    for (let round = 0; round < 8; round++) {
+      const me = await addUser(f, { role: 'MEMBER', team: f.team })
+      const pool = await newTask(null)
+
+      await Promise.allSettled([startTaskFor(me, pool.id), leave(me.userId)])
+
+      const row = await taskRow(pool.id)
+      expect(await isMember(me.userId)).toBe(false)
+      expect(row.assignedToId).not.toBe(me.userId)
+    }
+  })
+
+  it('a tarefa espera a saída da equipe confirmar e então não é entregue a quem saiu', async () => {
+    const me = await addUser(f, { role: 'MEMBER', team: f.team })
+    const pool = await newTask(null)
+    const admin = await addUser(f, { role: 'TENANT_ADMIN', team: null })
+    let attempt: Promise<unknown> = Promise.resolve()
+
+    await db.transaction(async (tx) => {
+      await removeMember(tx, admin, { teamId: f.team.id, userId: me.userId })
+      attempt = startTaskFor(me, pool.id).catch((e: Error) => e.message)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+
+    expect(await attempt).toBe('Tarefa não encontrada')
+    expect(await taskRow(pool.id)).toMatchObject({ assignedToId: null, status: 'pending' })
+  })
+
+  it('retomar a própria tarefa pausada enquanto sai da equipe termina, sem impasse, e a tarefa volta ao pool', async () => {
+    for (let round = 0; round < 8; round++) {
+      const me = await addUser(f, { role: 'MEMBER', team: f.team })
+      const paused = await newTask(me.userId)
+      await db.update(tasks).set({ status: 'paused' }).where(eq(tasks.id, paused.id))
+
+      const [started, left] = await Promise.allSettled([startTaskFor(me, paused.id), leave(me.userId)])
+
+      expect(left.status).toBe('fulfilled')
+      if (started.status === 'rejected') expect(started.reason.message).toBe('Tarefa não encontrada')
+      expect(await taskRow(paused.id)).toMatchObject({ assignedToId: null, status: 'pending' })
+    }
+  })
+
+  it('quem está em duas equipes pega tarefa do pool da que só integra', async () => {
+    const teamB = await addTeam(f, 'B-start')
+    const me = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB)
+    const [inB] = await db
+      .insert(tasks)
+      .values({ tenantId: f.tenant.id, teamId: teamB.id, createdById: f.leader.userId, title: 'da B', basePoints: 10, estimatedSeconds: min(5) })
+      .returning()
+
+    const started = await startTaskFor(me, inB!.id)
+
+    expect(started).toMatchObject({ assignedToId: me.userId, status: 'in_progress' })
+  })
+})
+
+describe('opções do formulário de tarefa', () => {
+  it('oferece só as equipes que a pessoa gerencia e os membros ativos delas, um por equipe', async () => {
+    const teamB = await addTeam(f, 'B-form')
+    const teamC = await addTeam(f, 'C-form')
+    const leader = await joinTeam(f, (await addUser(f, { role: 'TEAM_LEADER', team: f.team })).userId, teamB)
+    const inA = await addUser(f, { role: 'MEMBER', team: f.team })
+    const inBoth = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamC)
+    const inB = await addUser(f, { role: 'MEMBER', team: teamB })
+    const banned = await addUser(f, { role: 'MEMBER', team: f.team })
+    await db.update(users).set({ banned: true }).where(eq(users.id, banned.userId))
+
+    const options = await taskFormOptionsFor(leader)
+
+    expect(options.teams.map((t) => t.id)).toEqual([f.team.id])
+    const pairs = options.members.map((m) => `${m.id}@${m.teamId}`)
+    expect(pairs).toEqual(expect.arrayContaining([`${inA.userId}@${f.team.id}`, `${inBoth.userId}@${f.team.id}`]))
+    expect(pairs).not.toContain(`${inB.userId}@${teamB.id}`)
+    expect(pairs).not.toContain(`${inBoth.userId}@${teamC.id}`)
+    expect(pairs.some((p) => p.startsWith(banned.userId))).toBe(false)
+  })
+
+  it('admin vê todas as equipes do tenant, e membro comum não oferece nada', async () => {
+    const admin = await addUser(f, { role: 'TENANT_ADMIN', team: null })
+    const teamB = await addTeam(f, 'B-form-admin')
+
+    const asAdmin = await taskFormOptionsFor(admin)
+    const asMember = await taskFormOptionsFor(f.members[0]!)
+
+    expect(asAdmin.teams.map((t) => t.id)).toEqual(expect.arrayContaining([f.team.id, teamB.id]))
+    expect(asMember).toEqual({ teams: [], members: [] })
   })
 })

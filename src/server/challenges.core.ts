@@ -4,7 +4,7 @@ import { challenges, tasks, teams, users } from '#/db/schema'
 import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
-import { canManage, fail, forbid, isAdmin } from './roles'
+import { canAccessTeam, canManage, fail, forbid } from './roles'
 import { inTeams } from './scope'
 
 /** Tentativa que vale para tempo e recorde: concluída, sem validação pendente e não rejeitada. */
@@ -76,7 +76,7 @@ export async function createChallengeFor(
   me: AuthCtx,
   data: { title: string; description?: string; basePoints: number; estimatedMinutes: number; scoredAttemptsPerDay: number; teamId: string },
 ) {
-  if (!isAdmin(me) && data.teamId !== me.teamId) fail('Você só cria desafios para a sua equipe')
+  if (!canAccessTeam(me, data.teamId)) fail('Você só cria desafios para a sua equipe')
   assertWithinChallengeLimits(data)
   return db.transaction(async (tx) => {
     const [team] = await tx.select({ id: teams.id }).from(teams).where(and(eq(teams.id, data.teamId), eq(teams.tenantId, me.tenantId)))

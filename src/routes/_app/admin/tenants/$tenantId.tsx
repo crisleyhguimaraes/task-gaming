@@ -83,7 +83,7 @@ function TenantDetail() {
               <div className="font-medium">{u.name}</div>
               <div className="text-xs text-neutral-500">
                 {u.email} · {u.role}
-                {u.teamName ? ` · ${u.teamName}` : ''}
+                {u.teams.length > 0 ? ` · ${u.teams.join(', ')}` : ''}
               </div>
             </div>
             {u.role !== 'SUPER_ADMIN' && (

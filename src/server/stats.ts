@@ -1,11 +1,12 @@
-import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '#/db'
-import { taskTimeLogs, tasks, teams, tenants, users } from '#/db/schema'
+import { taskTimeLogs, tasks, teamMembers, teams, tenants, users } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { isManager } from './roles'
-import { inTenantTeams } from './scope'
+import { canManage, isAdmin, isManager } from './roles'
+import { inManagedTeams, inMemberTeams, inTenantTeams } from './scope'
 
 const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
+const unassigned = and(eq(tasks.status, 'pending'), isNull(tasks.assignedToId), isNull(tasks.challengeId))
 
 /** Dia local do tenant em SQL: (ts AT TIME ZONE tz)::date */
 export const localDay = (col: typeof tasks.finishedAt, tz: string) => sql`(${col} at time zone ${tz})::date`
@@ -111,68 +112,114 @@ export async function streak(userId: string, tz: string) {
 
 // --- Ranking / feed ---------------------------------------------------------
 
-export async function ranking(me: AuthCtx, period: Period, tz: string, teamId?: string) {
-  return db
+type RankingRow = { userId: string; name: string; teamId: string; teamName: string; points: number; finished: number; movingSeconds: number }
+
+/**
+ * Uma linha por (pessoa, equipe). Os pontos vêm de `tasks.team_id`: o que se ganhou na equipe X fica em X, mesmo que a pessoa
+ * tenha saído ou mudado de equipe depois. Ex-membros com pontos no período entram, para a soma bater com o total da equipe.
+ */
+export async function ranking(me: AuthCtx, period: Period, tz: string, teamId?: string): Promise<Array<RankingRow>> {
+  const earned = await db
     .select({
       userId: users.id,
       name: users.name,
+      teamId: teams.id,
       teamName: teams.name,
       points: sql<number>`coalesce(sum(${tasks.awardedPoints}), 0)::int`,
       finished: sql<number>`count(${tasks.id})::int`,
       movingSeconds: sql<number>`coalesce(sum(${tasks.movingSeconds}), 0)::int`,
     })
-    .from(users)
-    .leftJoin(teams, eq(teams.id, users.teamId))
-    .leftJoin(tasks, and(eq(tasks.assignedToId, users.id), validPoints, periodFilter(period, tz)))
-    .where(and(inTenantTeams(users, me, { only: teamId }), ne(users.role, 'SUPER_ADMIN')))
-    .groupBy(users.id, users.name, teams.name)
-    .orderBy(desc(sql`coalesce(sum(${tasks.awardedPoints}), 0)`), asc(users.name))
+    .from(tasks)
+    .innerJoin(users, eq(users.id, tasks.assignedToId))
+    .innerJoin(teams, eq(teams.id, tasks.teamId))
+    .where(and(inTenantTeams(tasks, me, { only: teamId }), validPoints, periodFilter(period, tz), ne(users.role, 'SUPER_ADMIN')))
+    .groupBy(users.id, users.name, teams.id, teams.name)
+  const members = await db
+    .select({ userId: users.id, name: users.name, teamId: teams.id, teamName: teams.name })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+    .where(and(inTenantTeams(teamMembers, me, { only: teamId }), ne(users.role, 'SUPER_ADMIN')))
+  const rows = new Map<string, RankingRow>()
+  for (const m of members) rows.set(`${m.teamId}:${m.userId}`, { ...m, points: 0, finished: 0, movingSeconds: 0 })
+  for (const e of earned) rows.set(`${e.teamId}:${e.userId}`, e)
+  return [...rows.values()].sort((a, b) => b.points - a.points || a.name.localeCompare(b.name))
 }
 
-/** Quem está ativo agora (log aberto) + tarefas pausadas + aguardando validação, no time. */
-export async function teamFeed(teamId: string) {
+/** Quem está ativo agora (log aberto) + pool; pausadas e aguardando validação só das equipes que `me` gerencia. */
+export async function teamFeed(me: AuthCtx, teamIds: ReadonlyArray<string>) {
+  const inFeed = and(eq(tasks.tenantId, me.tenantId), inArray(tasks.teamId, [...teamIds]))
+  const managed = and(inFeed, inManagedTeams(tasks.teamId, me))
   const activeNow = await db
     .select({ userId: users.id, name: users.name, taskId: tasks.id, title: tasks.title, since: taskTimeLogs.startedAt, estimatedSeconds: tasks.estimatedSeconds })
     .from(taskTimeLogs)
     .innerJoin(tasks, eq(tasks.id, taskTimeLogs.taskId))
     .innerJoin(users, eq(users.id, taskTimeLogs.userId))
-    .where(and(eq(tasks.teamId, teamId), isNull(taskTimeLogs.stoppedAt), eq(tasks.status, 'in_progress')))
+    .where(and(inFeed, isNull(taskTimeLogs.stoppedAt), eq(tasks.status, 'in_progress')))
     .orderBy(asc(taskTimeLogs.startedAt))
   const paused = await db
     .select({ taskId: tasks.id, title: tasks.title, name: users.name })
     .from(tasks)
     .innerJoin(users, eq(users.id, tasks.assignedToId))
-    .where(and(eq(tasks.teamId, teamId), eq(tasks.status, 'paused')))
+    .where(and(managed, eq(tasks.status, 'paused')))
     .orderBy(asc(tasks.title))
   const pendingValidation = await db
     .select({ taskId: tasks.id, title: tasks.title, name: users.name, points: tasks.awardedPoints, movingSeconds: tasks.movingSeconds, estimatedSeconds: tasks.estimatedSeconds })
     .from(tasks)
     .innerJoin(users, eq(users.id, tasks.assignedToId))
-    .where(and(eq(tasks.teamId, teamId), eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
+    .where(and(managed, eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
     .orderBy(asc(tasks.finishedAt))
-  const pool = await db
-    .select({ taskId: tasks.id, title: tasks.title, basePoints: tasks.basePoints })
-    .from(tasks)
-    .where(and(eq(tasks.teamId, teamId), eq(tasks.status, 'pending'), isNull(tasks.assignedToId), isNull(tasks.challengeId)))
-  return { activeNow, paused, pendingValidation, poolCount: pool.length }
+  const [pool] = await db.select({ n: sql<number>`count(*)::int` }).from(tasks).where(and(inFeed, unassigned))
+  return { activeNow, paused, pendingValidation, poolCount: pool!.n }
 }
+
+/** Página Equipe. Equipe pedida que `me` não vê (alheia, de outro tenant) dá vazio, nunca a página de outra. */
+export async function teamPageFor(me: AuthCtx, { period, teamId }: { period: Period; teamId?: string }) {
+  const { timezone } = await tenantSettings(me.tenantId)
+  const visible = await visibleTeams(me)
+  const chosen = visible.find((t) => t.id === teamId)?.id ?? null
+  const feedTeams = chosen ? [chosen] : teamId || isAdmin(me) ? [] : visible.map((t) => t.id)
+  return {
+    teams: isAdmin(me) || visible.length > 1 ? visible : [],
+    teamId: chosen,
+    period,
+    ranking: await ranking(me, period, timezone, teamId),
+    feed: feedTeams.length ? await teamFeed(me, feedTeams) : null,
+    canManage: chosen ? canManage(me, { teamId: chosen }) : teamId === undefined && isManager(me),
+  }
+}
+
+const visibleTeams = (me: AuthCtx) =>
+  db
+    .select({ id: teams.id, name: teams.name })
+    .from(teams)
+    .where(and(eq(teams.tenantId, me.tenantId), isAdmin(me) ? undefined : inMemberTeams(teams.id, me)))
+    .orderBy(asc(teams.name))
 
 export const openStatuses = ['pending', 'in_progress', 'paused'] as const
 export const inOpen = () => inArray(tasks.status, [...openStatuses])
 
-/** Sino: tarefas no pool da minha equipe + (gestor) conclusões aguardando validação. */
+
+/** Tarefas livres das equipes onde `me` tem vínculo, cada uma com o nome da equipe. */
+export async function poolOf(me: AuthCtx) {
+  const rows = await db
+    .select({ task: getTableColumns(tasks), teamName: teams.name })
+    .from(tasks)
+    .innerJoin(teams, eq(teams.id, tasks.teamId))
+    .where(and(eq(tasks.tenantId, me.tenantId), inMemberTeams(tasks.teamId, me), unassigned))
+    .orderBy(asc(tasks.createdAt))
+  return rows.map(({ task, teamName }) => ({ ...task, teamName }))
+}
+
+/** Sino: pool das minhas equipes + conclusões aguardando validação nas equipes que eu gerencio. */
 export async function attentionCount(me: AuthCtx) {
-  const [pool] = me.teamId
-    ? await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(tasks)
-        .where(and(eq(tasks.teamId, me.teamId), eq(tasks.status, 'pending'), isNull(tasks.assignedToId), isNull(tasks.challengeId)))
-    : [{ n: 0 }]
-  const [val] = isManager(me)
-    ? await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(tasks)
-        .where(and(inTenantTeams(tasks, me), eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
-    : [{ n: 0 }]
-  return { pool: pool?.n ?? 0, validation: val?.n ?? 0 }
+  const [pool] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(tasks)
+    .where(and(eq(tasks.tenantId, me.tenantId), inMemberTeams(tasks.teamId, me), unassigned))
+  const [val] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(tasks)
+    .where(and(eq(tasks.tenantId, me.tenantId), inManagedTeams(tasks.teamId, me), eq(tasks.status, 'finished'), eq(tasks.needsValidation, true)))
+  return { pool: pool!.n, validation: val!.n }
 }

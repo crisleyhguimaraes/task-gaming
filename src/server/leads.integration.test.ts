@@ -5,7 +5,7 @@ import { auditEvents, leads, notes, opportunities, pipelineStages, teams } from 
 import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, leadOptionsFor, leastLoadedOwner, listLeadsFor, updateLeadFor } from './leads.core'
 import { addNoteFor } from './notes.core'
 import type { AuthCtx } from './roles'
-import { addAdmin, addUser, makeTenant } from './test-fixtures'
+import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
@@ -437,5 +437,28 @@ describe('usuário sem equipe', () => {
 
     expect(await listLeadsFor(teamless, {})).toEqual({ leads: [], total: 0 })
     expect(await leadOptionsFor(teamless)).toEqual({ teams: [], members: [] })
+  })
+})
+
+describe('líder de uma equipe e membro de outra', () => {
+  it('assume lead do pool da equipe que só integra, mas não de uma terceira', async () => {
+    const teamB = await addTeam(f, 'B-leads')
+    const me = await joinTeam(f, (await addUser(f, { role: 'TEAM_LEADER', team: f.team })).userId, teamB, 'MEMBER')
+    const inB = await seedLead({ teamId: teamB.id })
+    const inOther = await seedLead({ teamId: (await addTeam(f, 'C-leads')).id })
+
+    const claimed = await claimLeadFor(me, inB.id)
+
+    expect(claimed.ownerId).toBe(me.userId)
+    await expect(claimLeadFor(me, inOther.id)).rejects.toThrow('indisponível')
+  })
+
+  it('as opções de responsável trazem a pessoa em cada equipe dela, lidas de team_members', async () => {
+    const teamB = await addTeam(f, 'B-opcoes')
+    const both = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB)
+
+    const { members } = await leadOptionsFor(await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team })).userId, teamB))
+
+    expect(members.filter((m) => m.id === both.userId).map((m) => m.teamId).sort()).toEqual([f.team.id, teamB.id].sort())
   })
 })

@@ -1,12 +1,12 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, invitations, sessions, taskTimeLogs, tasks, teams, users } from '#/db/schema'
+import { auditEvents, challenges, invitations, sessions, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { createInvitationCore } from './invitations.core'
 import type { AuthCtx } from './roles'
 import { ForbiddenError } from './roles'
-import { addAdmin, addLoginUser, addTeam, addUser, makeTenant } from './test-fixtures'
+import { addAdmin, addLoginUser, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 import { createUserFor, deactivateUserCore, listUsersFor, reactivateUserCore, updateUserCore } from './users.core'
 
 let mine: Awaited<ReturnType<typeof makeTenant>>
@@ -119,6 +119,42 @@ describe('desativar e reativar usuário', () => {
     expect(closed!.stoppedAt).not.toBeNull()
     const [released] = await db.select().from(tasks).where(eq(tasks.id, task.id))
     expect(released).toMatchObject({ assignedToId: null, status: 'pending' })
+  })
+
+  it('cancela a tentativa de desafio aberta em vez de devolvê-la ao pool', async () => {
+    const u = await newUser('com-desafio')
+    const [challenge] = await db
+      .insert(challenges)
+      .values({ tenantId: mine.tenant.id, teamId: mine.team.id, createdById: admin.userId, title: 'Desafio', basePoints: 10, estimatedSeconds: 600 })
+      .returning()
+    const { task } = await startWork(u.id)
+    await db.update(tasks).set({ challengeId: challenge!.id }).where(eq(tasks.id, task.id))
+
+    await deactivateUserCore(admin, u.id)
+
+    const [attempt] = await db.select().from(tasks).where(eq(tasks.id, task.id))
+    expect(attempt).toMatchObject({ status: 'cancelled', assignedToId: u.id })
+  })
+
+  it('quem está em várias equipes só é desativado por líder de todas elas, ou por admin', async () => {
+    const teamB = await addTeam(mine, 'B-multi')
+    const member = await newUser('duas-equipes')
+    await joinTeam(mine, member.id, teamB)
+    const leaderOfA = { ...mine.leader, capabilityOverrides: deactivators }
+    const both = await addUser(mine, { role: 'TEAM_LEADER', team: mine.team })
+    const leaderOfBoth = { ...(await joinTeam(mine, both.userId, teamB, 'LEADER')), capabilityOverrides: deactivators }
+
+    await expect(deactivateUserCore(leaderOfA, member.id)).rejects.toThrow(ForbiddenError)
+    await expect(reactivateUserCore(leaderOfA, member.id)).rejects.toThrow(ForbiddenError)
+    expect((await userRow(member.id)).banned).toBe(false)
+
+    await deactivateUserCore(leaderOfBoth, member.id)
+    expect((await userRow(member.id)).banned).toBe(true)
+
+    const other2 = await newUser('duas-equipes-admin')
+    await joinTeam(mine, other2.id, teamB)
+    await deactivateUserCore(admin, other2.id)
+    expect((await userRow(other2.id)).banned).toBe(true)
   })
 
   it('usuário desativado não consegue entrar; reativado volta a entrar', async () => {
@@ -297,6 +333,26 @@ describe('listUsersFor', () => {
       expect(await idsOf(f.leader)).not.toContain(inB.userId)
       expect(await idsOf(await addAdmin(f))).toContain(inB.userId)
       await expect(listUsersFor(f.members[0]!)).rejects.toThrow(ForbiddenError)
+    } finally {
+      await f.cleanup()
+    }
+  })
+
+  it('devolve as equipes de cada pessoa com o papel em cada uma', async () => {
+    const f = await makeTenant(1)
+    const teamB = await addTeam(f, 'B')
+    const both = await addUser(f, { role: 'TEAM_LEADER', team: f.team })
+    await joinTeam(f, both.userId, teamB, 'MEMBER')
+
+    try {
+      const { users: list } = await listUsersFor(await addAdmin(f))
+
+      const row = list.find((u) => u.id === both.userId)!
+      expect([...row.memberships].sort((a, b) => a.teamName.localeCompare(b.teamName))).toEqual([
+        { teamId: teamB.id, teamName: 'B', role: 'MEMBER' },
+        { teamId: f.team.id, teamName: 'Time', role: 'LEADER' },
+      ])
+      expect(list.find((u) => u.id === f.members[0]!.userId)!.memberships).toEqual([{ teamId: f.team.id, teamName: 'Time', role: 'MEMBER' }])
     } finally {
       await f.cleanup()
     }

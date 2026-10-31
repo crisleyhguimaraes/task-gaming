@@ -161,7 +161,7 @@ function Users() {
               {canUpdate ? (
                 <>
                   <select
-                    value={u.teamId ?? ''}
+                    value={u.memberships[0]?.teamId ?? ''}
                     onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: e.target.value || null, role: u.role as (typeof ROLES)[number] } }))}
                     className="w-auto py-1 text-xs"
                   >
@@ -170,7 +170,7 @@ function Users() {
                   </select>
                   <select
                     value={u.role}
-                    onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: u.teamId, role: e.target.value as (typeof ROLES)[number] } }))}
+                    onChange={(e) => act(() => updateUser({ data: { userId: u.id, teamId: u.memberships[0]?.teamId ?? null, role: e.target.value as (typeof ROLES)[number] } }))}
                     className="w-auto py-1 text-xs"
                   >
                     {ROLES.map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
