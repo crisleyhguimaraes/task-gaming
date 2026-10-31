@@ -19,6 +19,8 @@ Por cima disso há a gestão de sempre: Kanban com drag-and-drop, lista com filt
 
 ## Telas
 
+O tema claro é o padrão (o escuro fica no menu do usuário) e as telas usam a largura inteira do monitor: barra lateral em seções, busca na barra do topo e, no pipeline, os indicadores acima do kanban. Pipeline e Board têm visão em kanban e em lista. As capturas abaixo são da versão anterior do visual.
+
 | Player | Board |
 |---|---|
 | ![Player com cronômetro dentro do anel de progresso](docs/screenshots/player.png) | ![Kanban com colunas A fazer, Em andamento, Pausadas e Concluídas](docs/screenshots/board.png) |
