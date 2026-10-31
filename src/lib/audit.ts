@@ -68,6 +68,14 @@ export const auditActionLabels = {
   'pipeline.stage_created': 'Etapa do funil criada',
   'pipeline.stage_updated': 'Etapa do funil alterada',
   'pipeline.stage_deleted': 'Etapa do funil excluída',
+  'goal.created': 'Meta criada',
+  'goal.updated': 'Meta alterada',
+  'goal.deleted': 'Meta excluída',
+  'goal.teams_changed': 'Equipes da meta alteradas',
+  'scoring_rule.created': 'Pontuação criada',
+  'scoring_rule.updated': 'Pontuação alterada',
+  'scoring_rule.deleted': 'Pontuação excluída',
+  'scoring_rule.teams_changed': 'Equipes da pontuação alteradas',
 } as const
 
 export type AuditAction = keyof typeof auditActionLabels

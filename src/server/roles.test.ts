@@ -103,7 +103,7 @@ describe('capabilities não delegáveis', () => {
   })
 
   it('cobrem tudo o que vale para o tenant inteiro', () => {
-    expect([...nonDelegableCapabilities].sort()).toEqual(['audit.read', 'permissions.manage', 'pipeline.configure', 'team.manage', 'tenant.configure', 'tenant.manage', 'user.update'])
+    expect([...nonDelegableCapabilities].sort()).toEqual(['audit.read', 'goal.configure', 'permissions.manage', 'pipeline.configure', 'scoring.configure', 'team.manage', 'tenant.configure', 'tenant.manage', 'user.update'])
   })
 })
 
@@ -240,5 +240,24 @@ describe('predicados sobre vínculos', () => {
     expect(isManager(me)).toBe(true)
     expect(isManager(person('MEMBER', [[A, 'MEMBER']]))).toBe(false)
     expect(isManager(teamless)).toBe(false)
+  })
+})
+
+describe('capabilities de metas, pontuações e boards', () => {
+  const leaderOfAMemberOfB = (overrides: AuthCtx['capabilityOverrides'] = {}) => person('MEMBER', [[A, 'LEADER'], [B, 'MEMBER']], overrides)
+
+  it.each(['goal.configure', 'scoring.configure'] as const)('%s é do tenant, só de admin, e delegar não vale', (cap) => {
+    expect(capabilityScope[cap]).toBe('tenant')
+    expect(hierarchy.filter((r) => can(as(r), cap))).toEqual(['TENANT_ADMIN', 'SUPER_ADMIN'])
+    expect(can(leaderOfAMemberOfB({ LEADER: { [cap]: true } }), cap, A)).toBe(false)
+  })
+
+  it('board.manage é de equipe: líder gerencia na equipe que lidera e só nela', () => {
+    const leader = leaderOfAMemberOfB()
+
+    expect(capabilityScope['board.manage']).toBe('team')
+    expect(can(leader, 'board.manage', A)).toBe(true)
+    expect(can(leader, 'board.manage', B)).toBe(false)
+    expect(can(as('MEMBER'), 'board.manage')).toBe(false)
   })
 })
