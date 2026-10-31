@@ -1,13 +1,17 @@
 import { Link, createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { Columns3, Download, GanttChart, List, Pencil, Plus, Search } from 'lucide-react'
+import { Columns3, Download, Flag, GanttChart, LayoutDashboard, List, Pencil, Plus, User, UsersRound } from 'lucide-react'
 import * as React from 'react'
 import { CompletionModal } from '#/components/CompletionModal'
 import type { CompletionSummary } from '#/components/CompletionModal'
+import { FilterSelect } from '#/components/FilterSelect'
 import { Modal } from '#/components/Modal'
 import { KanbanBoard } from '#/components/kanban/Board'
 import type { BoardTask, MovePayload } from '#/components/kanban/Board'
 import { PRIORITY_LABEL } from '#/components/kanban/Card'
+import { PageHeader } from '#/components/PageHeader'
+import { SearchField } from '#/components/SearchField'
 import { Timeline } from '#/components/Timeline'
+import { TopbarSlot } from '#/components/Topbar'
 import { fmtClock } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
 import { NO_BOARD } from '#/lib/boards'
@@ -18,6 +22,7 @@ import { can, isManager } from '#/server/roles'
 import { finishTask, finishTaskManually, listTasks, moveTask, pauseTask, returnToPool, startTask, taskFilterSchema } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/board')({
+  staticData: { pageWidth: 'full' },
   validateSearch: taskFilterSchema,
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -42,6 +47,7 @@ function Board() {
   const [error, setError] = React.useState<string | null>(null)
   const [summary, setSummary] = React.useState<CompletionSummary | null>(null)
   const [confirmManual, setConfirmManual] = React.useState<MovePayload | null>(null)
+  const [query, setQuery] = React.useState(search.search ?? '')
   const set = (patch: Partial<typeof search>) => navigate({ search: (prev) => ({ ...prev, ...patch }) })
 
   async function exportCsv() {
@@ -91,56 +97,56 @@ function Board() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">Board</h1>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-0.5 rounded-xl border border-neutral-800 p-0.5">
-            {([['kanban', Columns3], ['list', List], ['timeline', GanttChart]] as const).map(([v, Icon]) => (
-              <button key={v} onClick={() => set({ view: v })} title={v} className={`rounded-lg p-1.5 ${search.view === v ? 'bg-neutral-800 text-neutral-50' : 'text-neutral-500 hover:text-neutral-50'}`}>
-                <Icon className="h-4 w-4" />
-              </button>
-            ))}
-          </div>
-          {can(me, 'export.csv', search.teamId) && (
-            <button onClick={exportCsv} className="btn-ghost px-3 py-2 text-xs"><Download className="h-4 w-4" /> CSV</button>
-          )}
-          {isManager(me) && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Tarefa</Link>}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
+    <div className="space-y-5">
+      <TopbarSlot>
         <form
-          onSubmit={(e) => { e.preventDefault(); set({ search: String(new FormData(e.currentTarget).get('q')) || undefined }) }}
-          className="relative min-w-[180px] flex-1"
+          onSubmit={(e) => {
+            e.preventDefault()
+            set({ search: query || undefined })
+          }}
         >
-          <Search className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-neutral-500" />
-          <input name="q" defaultValue={search.search ?? ''} placeholder="Buscar…" className="pl-9" />
+          <SearchField value={query} onChange={setQuery} placeholder="Buscar tarefa…" />
         </form>
+      </TopbarSlot>
+      <PageHeader title="Board">
+        <div className="flex gap-0.5 rounded-xl border border-neutral-800 bg-neutral-900 p-0.5">
+          {([['kanban', Columns3], ['list', List], ['timeline', GanttChart]] as const).map(([v, Icon]) => (
+            <button key={v} onClick={() => set({ view: v })} title={v} className={`rounded-lg p-1.5 ${search.view === v ? 'bg-brand-soft text-brand-ink' : 'text-neutral-500 hover:text-neutral-50'}`}>
+              <Icon className="h-4 w-4" />
+            </button>
+          ))}
+        </div>
+        {can(me, 'export.csv', search.teamId) && (
+          <button onClick={exportCsv} className="btn-ghost px-3 py-2 text-xs"><Download className="h-4 w-4" /> CSV</button>
+        )}
+        {isManager(me) && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Nova tarefa</Link>}
+      </PageHeader>
+
+      <div className="flex flex-wrap items-center gap-2">
         {boards.length > 0 && (
-          <select value={search.boardId ?? ''} onChange={(e) => set({ boardId: e.target.value || undefined })} className="w-auto" aria-label="Board">
+          <FilterSelect label="Board" icon={LayoutDashboard} value={search.boardId ?? ''} onChange={(v) => set({ boardId: v || undefined })}>
             <option value="">Todos os boards</option>
             <option value={NO_BOARD}>Sem board</option>
             {boards.map((b) => <option key={b.id} value={b.id}>{b.archivedAt ? `${b.name} (arquivado)` : b.name}</option>)}
-          </select>
+          </FilterSelect>
         )}
         {teams.length > 0 && (
-          <select value={search.teamId ?? ''} onChange={(e) => set({ teamId: e.target.value || undefined, assigneeId: undefined })} className="w-auto">
+          <FilterSelect label="Equipe" icon={UsersRound} value={search.teamId ?? ''} onChange={(v) => set({ teamId: v || undefined, assigneeId: undefined })}>
             <option value="">Todas as equipes</option>
             {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+          </FilterSelect>
         )}
-        <select value={search.assigneeId ?? ''} onChange={(e) => set({ assigneeId: e.target.value || undefined })} className="w-auto">
-          <option value="">Todos</option>
+        <FilterSelect label="Responsável" icon={User} value={search.assigneeId ?? ''} onChange={(v) => set({ assigneeId: v || undefined })}>
+          <option value="">Todos os responsáveis</option>
           <option value="pool">Pool</option>
           {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-        <select value={search.priority ?? ''} onChange={(e) => set({ priority: (e.target.value || undefined) as typeof search.priority })} className="w-auto">
-          <option value="">Prioridade</option>
+        </FilterSelect>
+        <FilterSelect label="Prioridade" icon={Flag} value={search.priority ?? ''} onChange={(v) => set({ priority: (v || undefined) as typeof search.priority })}>
+          <option value="">Todas as prioridades</option>
           {Object.entries(PRIORITY_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        </FilterSelect>
       </div>
-      {error && <p className="rounded-lg border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
+      {error && <p className="rounded-xl border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
 
       {search.view === 'kanban' && <KanbanBoard tasks={tasks} onMove={onMove} />}
       {search.view === 'list' && <ListView tasks={tasks} sort={search.sort} onSort={(sort) => set({ sort })} />}

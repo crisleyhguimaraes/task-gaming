@@ -10,11 +10,11 @@ import { KanbanColumn } from './Column'
 
 export type BoardTask = Awaited<ReturnType<typeof listTasks>>['tasks'][number]
 
-export const COLUMNS: Array<{ id: TaskStatus; title: string }> = [
-  { id: 'pending', title: 'A fazer / Pool' },
-  { id: 'in_progress', title: 'Em andamento' },
-  { id: 'paused', title: 'Pausadas' },
-  { id: 'finished', title: 'Concluídas' },
+export const COLUMNS: Array<{ id: TaskStatus; title: string; dot: string }> = [
+  { id: 'pending', title: 'A fazer / Pool', dot: 'bg-neutral-500' },
+  { id: 'in_progress', title: 'Em andamento', dot: 'bg-brand-ring' },
+  { id: 'paused', title: 'Pausadas', dot: 'bg-amber-500' },
+  { id: 'finished', title: 'Concluídas', dot: 'bg-xp-400' },
 ]
 
 export type MovePayload = { task: BoardTask; toStatus: TaskStatus; sortOrder: number }
@@ -73,9 +73,9 @@ export function KanbanBoard({ tasks, onMove }: Props) {
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActive(null)}>
-      <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 select-none">
-        {COLUMNS.map((c) => <KanbanColumn key={c.id} id={c.id} title={c.title} tasks={items[c.id] ?? []} />)}
+    <DndContext id="task-board" sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActive(null)}>
+      <div className="flex h-[max(28rem,calc(100dvh-14rem))] gap-3 overflow-x-auto pb-2 select-none">
+        {COLUMNS.map((c) => <KanbanColumn key={c.id} id={c.id} title={c.title} dot={c.dot} tasks={items[c.id] ?? []} />)}
       </div>
       <DragOverlay>{active ? <KanbanCard task={active} overlay /> : null}</DragOverlay>
     </DndContext>
