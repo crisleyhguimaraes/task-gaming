@@ -4,7 +4,7 @@ import { db } from '#/db'
 import { auditEvents, tasks, teams } from '#/db/schema'
 import { exportAuditCsvFor, exportTasksCsvFor } from './exports.core'
 import type { AuthCtx } from './roles'
-import { addAdmin, addUser, makeTenant } from './test-fixtures'
+import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
 const BOM = '﻿'
 
@@ -103,6 +103,19 @@ describe('exportar tarefas', () => {
 
   it('membro não tem a capability', async () => {
     await expect(exportTasksCsvFor(f.members[0]!, {})).rejects.toThrow('Sem permissão')
+  })
+
+  it('líder de uma equipe e só membro de outra exporta apenas as tarefas da que ele lidera', async () => {
+    const memberOnly = await addTeam(f, 'Só membro')
+    await newTask('Da equipe onde só é membro', { teamId: memberOnly.id })
+    const hybrid = await joinTeam(f, (await addUser(f, { role: 'MEMBER', team: f.team, teamRole: 'LEADER' })).userId, memberOnly)
+
+    const everything = await exportTasksCsvFor(hybrid, {})
+    const asked = await exportTasksCsvFor(hybrid, { teamId: memberOnly.id })
+
+    expect(everything.content).toContain('Da equipe principal')
+    expect(everything.content).not.toContain('Da equipe onde só é membro')
+    expect(dataLines(asked.content)).toEqual([])
   })
 
   it('líder de outra equipe não enxerga nada da equipe principal', async () => {

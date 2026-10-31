@@ -11,16 +11,14 @@ import { lockBoardForTask } from './boards.core'
 import { accessibleChallenge, bestFirst, lockChallengeForAttempt, ownerTeamOf, scoringAttempt, validAttempt } from './challenges.core'
 import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
-import type { AuthCtx } from './roles'
-import { canManage, canManageWith, canSee, fail, forbid, isAdmin, requireCan } from './roles'
-import { activeMembersByTeam, assertMember, inManagedTeams, inTeams, usersInScope } from './scope'
+import type { AuthCtx, Capability } from './roles'
+import { canManage, canManageWith, canSee, fail, forbid, isAdmin } from './roles'
+import { activeMembersByTeam, assertMember, inManagedTeams, inTeams, lockActiveMember, usersInScope } from './scope'
 import { effectiveRules, scoreTask } from './scoring'
 import { snapshotOfTeam } from './scoring-rules.core'
 import { inOpen, localDay, localDayOf, tenantSettings } from './stats'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
 import type { Reader, Tx } from './tx'
-
-export { canManage, canSee, fail, isAdmin }
 
 /** Fecha logs abertos que casem com `where`, aplicando o teto. Retorna os taskIds afetados. */
 async function closeOpenLogs(tx: Tx, where: SQL | undefined, now: Date) {
@@ -62,14 +60,19 @@ export async function managesAttempt(tx: Reader, me: AuthCtx, task: Pick<Task, '
   return owner !== null && canManage(me, { teamId: owner })
 }
 
+/** Quem abre a tarefa: quem a vê pela equipe e, na tentativa de desafio, o líder da equipe dona. */
+export async function canOpenTask(tx: Reader, me: AuthCtx, task: Pick<Task, 'tenantId' | 'teamId' | 'assignedToId' | 'challengeId'>) {
+  return canSee(me, task) || managesAttempt(tx, me, task)
+}
+
 /** Tentativa de desafio é do executor: nem o líder pausa ou conclui por ele. */
 const canOperate = (me: AuthCtx, task: Task) => task.assignedToId === me.userId || (task.challengeId === null && canManage(me, task))
 
 /** Tira o trabalho aberto de `userId` (só o de `teamId`, se dada). Tentativa de desafio é cancelada: o pool a ignora e ela ficaria órfã. */
-export async function releaseOpenWork(tx: Tx, userId: string, teamId?: string) {
+export async function releaseOpenWork(tx: Tx, userId: string, teamId?: string, now = new Date()) {
   const inTeam = teamId ? eq(tasks.teamId, teamId) : undefined
   const owned = and(eq(tasks.assignedToId, userId), inOpen(), inTeam)
-  await closeOpenLogs(tx, and(eq(taskTimeLogs.userId, userId), inTeam), new Date())
+  await closeOpenLogs(tx, and(eq(taskTimeLogs.userId, userId), inTeam), now)
   await tx.update(tasks).set({ status: 'cancelled' }).where(and(owned, isNotNull(tasks.challengeId)))
   await tx.update(tasks).set({ status: 'pending', assignedToId: null }).where(and(owned, isNull(tasks.challengeId)))
 }
@@ -162,6 +165,16 @@ export type FinishSummary = {
   manual: boolean
   isNewRecord: boolean
 }
+
+type FinishResult = Omit<FinishSummary, 'taskId' | 'taskTitle' | 'basePoints' | 'estimatedSeconds'>
+
+const summaryOf = (task: Task, result: FinishResult): FinishSummary => ({
+  taskId: task.id,
+  taskTitle: task.title,
+  basePoints: task.basePoints,
+  estimatedSeconds: task.estimatedSeconds,
+  ...result,
+})
 
 type Best = { seconds: number; userId: string }
 
@@ -258,19 +271,7 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
     if (task.challengeId) {
       await recordAttemptFinished(tx, me, { ...task, challengeId: task.challengeId }, { movingSeconds, scored, needsValidation: score.needsValidation, isNewRecord, previous })
     }
-    return {
-      taskId,
-      taskTitle: task.title,
-      basePoints: task.basePoints,
-      estimatedSeconds: task.estimatedSeconds,
-      movingSeconds,
-      elapsedSeconds,
-      ...score,
-      finalPoints,
-      scored,
-      manual: false,
-      isNewRecord,
-    }
+    return summaryOf(task, { movingSeconds, elapsedSeconds, ...score, finalPoints, scored, manual: false, isNewRecord })
   })
 }
 
@@ -317,6 +318,19 @@ async function findOpenAttempt(tx: Tx, userId: string, challengeId: string) {
   return open
 }
 
+const manualResultOf = (task: Task): FinishResult => ({
+  movingSeconds: task.estimatedSeconds,
+  elapsedSeconds: task.estimatedSeconds,
+  paceBonus: 0,
+  overtimePenalty: 0,
+  pausePenalty: 0,
+  finalPoints: task.basePoints,
+  needsValidation: false,
+  scored: true,
+  manual: true,
+  isNewRecord: false,
+})
+
 /** Conclusão manual (Kanban): pontos base, sem cronômetro. */
 export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = new Date()): Promise<FinishSummary> {
   return db.transaction(async (tx) => {
@@ -346,22 +360,7 @@ export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = n
       entityId: taskId,
       changes: diffFields(task, updated!, ['status', 'assignedToId', 'awardedPoints']),
     })
-    return {
-      taskId,
-      taskTitle: task.title,
-      basePoints: task.basePoints,
-      estimatedSeconds: task.estimatedSeconds,
-      movingSeconds: task.estimatedSeconds,
-      elapsedSeconds: task.estimatedSeconds,
-      paceBonus: 0,
-      overtimePenalty: 0,
-      pausePenalty: 0,
-      finalPoints: task.basePoints,
-      needsValidation: false,
-      scored: true,
-      manual: true,
-      isNewRecord: false,
-    }
+    return summaryOf(task, manualResultOf(task))
   })
 }
 
@@ -420,7 +419,7 @@ async function announceApprovedRecord(tx: Tx, me: AuthCtx, attempt: Task) {
 }
 
 /** Aprova ou rejeita pontos retidos (gestor; na tentativa de desafio, quem valida o desafio). */
-export async function validatePointsFor(me: AuthCtx, taskId: string, approve: boolean, reason?: string) {
+export async function validatePointsFor(me: AuthCtx, taskId: string, approve: boolean, reason?: string, now = new Date()) {
   return db.transaction(async (tx) => {
     const task = await lockTask(tx, me, taskId)
     if (task.challengeId) await assertCanValidateAttempt(tx, me, task)
@@ -428,7 +427,7 @@ export async function validatePointsFor(me: AuthCtx, taskId: string, approve: bo
     if (task.status !== 'finished' || !task.needsValidation) fail('Tarefa não aguarda validação')
     const [updated] = await tx
       .update(tasks)
-      .set({ needsValidation: false, awardedPoints: approve ? task.awardedPoints : 0, rejectedAt: approve ? null : new Date() })
+      .set({ needsValidation: false, awardedPoints: approve ? task.awardedPoints : 0, rejectedAt: approve ? null : now })
       .where(eq(tasks.id, taskId))
       .returning()
     await recordAudit(tx, me, {
@@ -450,19 +449,21 @@ export async function validatePointsFor(me: AuthCtx, taskId: string, approve: bo
   })
 }
 
-/** Cancelada volta a pendente com o mesmo responsável; os pontos já foram zerados ao cancelar. */
+/** Cancelada volta a pendente com o mesmo responsável, ou ao pool se ele já não é membro ativo; os pontos já foram zerados ao cancelar. O board precisa seguir ativo e vinculado à equipe. */
 export async function restoreTaskFor(me: AuthCtx, taskId: string) {
-  requireCan(me, 'task.restore')
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
-    if (!canManage(me, task)) forbid()
+    if (!canManageWith(me, 'task.restore', task.teamId)) forbid()
     if (task.status !== 'cancelled') fail('Só tarefas canceladas podem ser restauradas')
-    const [updated] = await tx.update(tasks).set({ status: 'pending' }).where(eq(tasks.id, taskId)).returning()
+    if (task.challengeId) fail('Tentativa de desafio cancelada não volta: a pessoa tenta de novo')
+    if (task.boardId) await lockBoardForTask(tx, me, task.boardId, task.teamId)
+    const keepsAssignee = task.assignedToId !== null && (await lockActiveMember(tx, { tenantId: me.tenantId, userId: task.assignedToId, teamId: task.teamId }))
+    const [updated] = await tx.update(tasks).set({ status: 'pending', assignedToId: keepsAssignee ? task.assignedToId : null }).where(eq(tasks.id, taskId)).returning()
     await recordAudit(tx, me, {
       action: 'task.restored',
       entityType: 'task',
       entityId: taskId,
-      changes: diffFields(task, updated!, ['status']),
+      changes: diffFields(task, updated!, ['status', 'assignedToId']),
     })
     return updated!
   })
@@ -476,8 +477,7 @@ export async function taskDetailFor(me: AuthCtx, taskId: string) {
     .leftJoin(users, eq(users.id, tasks.assignedToId))
     .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId)))
   if (!row) fail('Tarefa não encontrada')
-  const ownsAttempt = await managesAttempt(db, me, row.task)
-  if (!canSee(me, row.task) && !ownsAttempt) fail('Tarefa não encontrada')
+  if (!(await canOpenTask(db, me, row.task))) fail('Tarefa não encontrada')
   return {
     ...row.task,
     assigneeName: row.assigneeName,
@@ -486,7 +486,7 @@ export async function taskDetailFor(me: AuthCtx, taskId: string) {
     cap: capOfTask(row.task),
     isMine: row.task.assignedToId === me.userId,
     canManage: canManage(me, row.task),
-    managesAttempt: ownsAttempt,
+    managesAttempt: await managesAttempt(db, me, row.task),
   }
 }
 
@@ -496,7 +496,7 @@ export async function activeTaskFor(me: AuthCtx) {
     .select()
     .from(tasks)
     .where(and(eq(tasks.tenantId, me.tenantId), eq(tasks.assignedToId, me.userId), inArray(tasks.status, ['in_progress', 'paused'])))
-    .orderBy(desc(tasks.status))
+    .orderBy(desc(sql`${tasks.status} = 'in_progress'`))
     .limit(1)
   const task = rows[0]
   if (!task) return null
@@ -513,8 +513,6 @@ export async function taskPlayerState(taskId: string, userId: string) {
   const open = logs.find((l) => l.stoppedAt === null && l.userId === userId)
   return { accumulatedSeconds, activeStartedAt: open ? open.startedAt.toISOString() : null }
 }
-
-export { capFor }
 
 export type NewTask = {
   title: string
@@ -593,11 +591,12 @@ const auditedTaskFields = ['title', 'description', 'basePoints', 'estimatedSecon
 
 export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
   await db.transaction(async (tx) => {
-    const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
-    if (!task || !canManage(me, task)) forbid()
+    const task = await lockTask(tx, me, data.taskId)
+    if (!canManage(me, task)) forbid()
     if (task.challengeId) fail('Tentativa de desafio não pode ser editada')
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa encerrada não pode ser editada')
-    if (data.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: task.teamId })
+    // Só quem passa a ser responsável é conferido: com a tarefa travada, travar o vínculo do atual inverteria a ordem de removeMember (vínculo, depois tarefa) e daria impasse.
+    if (data.assignedToId && data.assignedToId !== task.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: task.teamId })
     if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')
     if (data.scheduledStart && data.scheduledEnd && data.scheduledEnd < data.scheduledStart) fail('Fim do cronograma antes do início')
     if (data.boardId && data.boardId !== task.boardId) await lockBoardForTask(tx, me, data.boardId, task.teamId)
@@ -629,10 +628,10 @@ export type TaskListFilters = { teamId?: string; assigneeId?: string; priority?:
 const boardFilter = (boardId?: string) => (boardId === NO_BOARD ? isNull(tasks.boardId) : boardId ? eq(tasks.boardId, boardId) : undefined)
 
 /** Escopo de visibilidade compartilhado entre a lista do board e a exportação. O board filtra, não amplia: tarefa de equipe alheia continua invisível. */
-export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
+export function taskListWhere(me: AuthCtx, filters: TaskListFilters, capability?: Capability) {
   return and(
     eq(tasks.tenantId, me.tenantId),
-    inTeams(tasks.teamId, me, { only: filters.teamId }),
+    inTeams(tasks.teamId, me, { only: filters.teamId, capability }),
     isNull(tasks.challengeId),
     boardFilter(filters.boardId),
     filters.assigneeId === 'pool' ? isNull(tasks.assignedToId) : filters.assigneeId ? eq(tasks.assignedToId, filters.assigneeId) : undefined,
@@ -641,12 +640,10 @@ export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
   )
 }
 
-/** Quem pode aparecer como responsável no filtro do board, no mesmo escopo da lista. */
 export function boardMembersFor(me: AuthCtx, teamId?: string) {
   return db.select({ id: users.id, name: users.name }).from(users).where(usersInScope(me, { only: teamId })).orderBy(asc(users.name))
 }
 
-/** O que o formulário de tarefa oferece: as equipes que `me` gerencia (admin, todas) e os membros ativos de cada uma. */
 export async function taskFormOptionsFor(me: AuthCtx) {
   const teamList = await db
     .select({ id: teams.id, name: teams.name })

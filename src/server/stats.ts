@@ -8,7 +8,7 @@ import type { AuthCtx } from './roles'
 import { can, canManage, canManageWith, fail, isAdmin, isManager, managedTeamIds } from './roles'
 import { inManagedTeams, inMemberTeams, inTenantTeams } from './scope'
 
-const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
+export const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false), isNull(tasks.rejectedAt))
 const unassigned = and(eq(tasks.status, 'pending'), isNull(tasks.assignedToId), isNull(tasks.challengeId))
 
 /** Dia local do tenant em SQL: (ts AT TIME ZONE tz)::date */
@@ -17,12 +17,11 @@ export const localDayOf = (instant: Date, tz: string) => sql`(${instant.toISOStr
 export const todayLocal = (tz: string) => sql`(now() at time zone ${tz})::date`
 
 export type Period = 'day' | 'week' | 'all'
-const periodFilter = (period: Period, tz: string) =>
-  period === 'day'
-    ? sql`${localDay(tasks.finishedAt, tz)} = ${todayLocal(tz)}`
-    : period === 'week'
-      ? sql`${localDay(tasks.finishedAt, tz)} >= date_trunc('week', now() at time zone ${tz})::date`
-      : undefined
+function periodFilter(period: Period, tz: string) {
+  if (period === 'day') return sql`${localDay(tasks.finishedAt, tz)} = ${todayLocal(tz)}`
+  if (period === 'week') return sql`${localDay(tasks.finishedAt, tz)} >= date_trunc('week', now() at time zone ${tz})::date`
+  return undefined
+}
 
 export async function tenantSettings(tenantId: string) {
   const [t] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, tenantId))
@@ -79,8 +78,6 @@ export async function pointsByDay(userId: string, tz: string, days = 14) {
   })
 }
 
-// --- Streak -----------------------------------------------------------------
-
 /** 'YYYY-MM-DD' de agora no fuso do tenant. */
 export const todayKey = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
 
@@ -99,8 +96,6 @@ export async function streak(userId: string, tz: string, today = todayKey(tz)) {
 export async function goalOfDay(userId: string, day: string) {
   return goalForWeekday(await effectiveGoalsOf(db, userId), weekdayOf(day))
 }
-
-// --- Ranking / feed ---------------------------------------------------------
 
 type RankingRow = { userId: string; name: string; teamId: string; teamName: string; points: number; finished: number; movingSeconds: number }
 
@@ -196,12 +191,19 @@ export async function teamFeed(me: AuthCtx, teamIds: ReadonlyArray<string>) {
   return { activeNow, paused, pendingValidation, poolCount: pool!.n }
 }
 
+/** Equipe pedida que não se vê, ou admin sem equipe escolhida, fica sem feed; os demais somam as próprias equipes. */
+function feedTeamIds(me: AuthCtx, visible: ReadonlyArray<{ id: string }>, chosen: string | null, requested?: string) {
+  if (chosen) return [chosen]
+  if (requested || isAdmin(me)) return []
+  return visible.map((t) => t.id)
+}
+
 /** Página Equipe. Equipe pedida que `me` não vê (alheia, de outro tenant) dá vazio, nunca a página de outra. */
 export async function teamPageFor(me: AuthCtx, { period, teamId }: { period: Period; teamId?: string }) {
   const { timezone } = await tenantSettings(me.tenantId)
   const visible = await visibleTeams(me)
   const chosen = visible.find((t) => t.id === teamId)?.id ?? null
-  const feedTeams = chosen ? [chosen] : teamId || isAdmin(me) ? [] : visible.map((t) => t.id)
+  const feedTeams = feedTeamIds(me, visible, chosen, teamId)
   return {
     teams: isAdmin(me) || visible.length > 1 ? visible : [],
     teamId: chosen,
@@ -222,8 +224,6 @@ const visibleTeams = (me: AuthCtx) =>
 export const openStatuses = ['pending', 'in_progress', 'paused'] as const
 export const inOpen = () => inArray(tasks.status, [...openStatuses])
 
-
-/** Tarefas livres das equipes onde `me` tem vínculo, cada uma com o nome da equipe. */
 export async function poolOf(me: AuthCtx) {
   const rows = await db
     .select({ task: getTableColumns(tasks), teamName: teams.name })
@@ -234,7 +234,6 @@ export async function poolOf(me: AuthCtx) {
   return rows.map(({ task, teamName }) => ({ ...task, teamName }))
 }
 
-/** Sino: pool das minhas equipes + conclusões aguardando validação nas equipes que eu gerencio. */
 export async function attentionCount(me: AuthCtx) {
   const [pool] = await db
     .select({ n: sql<number>`count(*)::int` })

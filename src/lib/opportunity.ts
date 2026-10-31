@@ -1,6 +1,6 @@
 import type { StageKind } from '#/db/schema'
 import type { AuthCtx } from '#/server/roles'
-import { canManage, canSee, fail } from '#/server/roles'
+import { canAccessTeam, canManage, fail } from '#/server/roles'
 import type { AuditAction } from './audit'
 
 const MIN_LOST_REASON_LENGTH = 3
@@ -34,8 +34,8 @@ export function lostReasonFor(target: StageRef, raw: string | undefined) {
   return reason
 }
 
-/** Registro com dono se comporta como tarefa: o dono (`ownerId`) faz o papel de `assignedToId` na visibilidade. */
-export const canSeeRecord = (me: AuthCtx, { teamId, ownerId }: Owned) => canSee(me, { teamId, assignedToId: ownerId })
+/** Ser dono não abre o registro: quem saiu da equipe continua constando como dono do histórico, mas não lê mais o contato. */
+export const canSeeRecord = (me: AuthCtx, { teamId }: Owned) => canAccessTeam(me, teamId)
 
 /** Quem tem dono só deixa o dono ou um gestor mexer; sem dono, qualquer um que enxergue. */
 export const canEditRecord = (me: AuthCtx, record: Owned) => canSeeRecord(me, record) && (record.ownerId === null || record.ownerId === me.userId || canManage(me, record))

@@ -6,6 +6,7 @@ import { auth } from '#/lib/auth'
 import { recordAudit } from './audit.core'
 import type { AuthCtx, Capability } from './roles'
 import { fail, requireCan } from './roles'
+import { releaseOwnedRecords } from './leads.core'
 import { assertWithinScope, teamIdsFrom, usersInScope } from './scope'
 import { assertTeamInTenant } from './teams.core'
 import { addMember, teamsOfUser } from './team-members.core'
@@ -66,7 +67,8 @@ export async function deactivateUserCore(me: AuthCtx, userId: string, reason?: s
     await tx.update(users).set({ banned: true, banReason: reason || null }).where(eq(users.id, u.id))
     await tx.delete(sessions).where(eq(sessions.userId, u.id))
     await releaseOpenWork(tx, u.id)
-    await recordAudit(tx, me, { action: 'user.deactivated', entityType: 'user', entityId: u.id, meta: reason ? { reason } : undefined })
+    const released = await releaseOwnedRecords(tx, u.id)
+    await recordAudit(tx, me, { action: 'user.deactivated', entityType: 'user', entityId: u.id, meta: { ...(reason ? { reason } : {}), ...released } })
   })
 }
 

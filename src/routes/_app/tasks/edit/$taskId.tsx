@@ -2,26 +2,29 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft, Link2, X } from 'lucide-react'
 import * as React from 'react'
 import { PRIORITY_LABEL } from '#/components/kanban/Card'
+import { listBoards } from '#/server/boards'
 import { addDependency, getDependencies, removeDependency } from '#/server/dependencies'
 import { getTask, getTaskFormOptions, updateTask } from '#/server/tasks'
 
 export const Route = createFileRoute('/_app/tasks/edit/$taskId')({
   loader: async ({ params }) => {
-    const [task, options, deps] = await Promise.all([
+    const [task, options, deps, boards] = await Promise.all([
       getTask({ data: { taskId: params.taskId } }),
       getTaskFormOptions(),
       getDependencies({ data: { taskId: params.taskId } }),
+      listBoards(),
     ])
-    return { task, options, deps }
+    return { task, options, deps, boards: boards.filter((b) => !b.archivedAt) }
   },
   component: EditTask,
 })
 
 function EditTask() {
-  const { task, options, deps } = Route.useLoaderData()
+  const { task, options, deps, boards } = Route.useLoaderData()
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const members = options.members.filter((m) => m.teamId === task.teamId)
+  const teamBoards = boards.filter((b) => b.teams.some((t) => t.id === task.teamId))
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -39,6 +42,7 @@ function EditTask() {
           scheduledStart: String(f.get('scheduledStart')) || null,
           scheduledEnd: String(f.get('scheduledEnd')) || null,
           assignedToId: String(f.get('assignedToId')) || null,
+          boardId: f.has('boardId') ? String(f.get('boardId')) || null : undefined,
         },
       })
       await router.invalidate()
@@ -85,6 +89,15 @@ function EditTask() {
             {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </div>
+        {teamBoards.length > 0 && (
+          <div className="space-y-1">
+            <label htmlFor="boardId">Board</label>
+            <select id="boardId" name="boardId" defaultValue={task.boardId ?? ''}>
+              <option value="">Sem board</option>
+              {teamBoards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1"><label htmlFor="scheduledStart">Cronograma: início</label><input id="scheduledStart" name="scheduledStart" type="date" defaultValue={task.scheduledStart ?? ''} /></div>
           <div className="space-y-1"><label htmlFor="scheduledEnd">Cronograma: fim</label><input id="scheduledEnd" name="scheduledEnd" type="date" defaultValue={task.scheduledEnd ?? ''} /></div>

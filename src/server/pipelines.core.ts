@@ -50,6 +50,11 @@ async function openOpportunitiesIn(tx: Reader, pipelineId: string, teamId?: stri
   return row!.n
 }
 
+async function assertNoOpenWork(tx: Reader, pipelineId: string, teamId: string, where: string, action: string) {
+  const open = await openOpportunitiesIn(tx, pipelineId, teamId)
+  if (open > 0) fail(`A equipe tem ${countOpportunities(open)} em etapa aberta ${where}; mova ou feche antes de ${action}`)
+}
+
 export async function createPipelineFor(me: AuthCtx, name: string) {
   requireCan(me, 'pipeline.configure')
   assertValidName(name, 'do pipeline')
@@ -73,7 +78,7 @@ export async function renamePipelineFor(me: AuthCtx, pipelineId: string, name: s
   })
 }
 
-export async function archivePipelineFor(me: AuthCtx, pipelineId: string) {
+export async function archivePipelineFor(me: AuthCtx, pipelineId: string, now = new Date()) {
   requireCan(me, 'pipeline.configure')
   await db.transaction(async (tx) => {
     const pipeline = await loadPipeline(tx, me, pipelineId, 'update')
@@ -81,7 +86,7 @@ export async function archivePipelineFor(me: AuthCtx, pipelineId: string) {
     if (pipeline.archivedAt) fail('O pipeline já está arquivado')
     const open = await openOpportunitiesIn(tx, pipeline.id)
     if (open > 0) fail(`O pipeline tem ${countOpportunities(open)} em etapa aberta; mova ou feche antes de arquivar`)
-    await tx.update(pipelines).set({ archivedAt: new Date() }).where(eq(pipelines.id, pipeline.id))
+    await tx.update(pipelines).set({ archivedAt: now }).where(eq(pipelines.id, pipeline.id))
     await recordAudit(tx, me, { action: 'pipeline.archived', ...pipelineEntity(pipeline.id), meta: { name: pipeline.name } })
   })
 }
@@ -91,6 +96,7 @@ export async function restorePipelineFor(me: AuthCtx, pipelineId: string) {
   await db.transaction(async (tx) => {
     const pipeline = await loadPipeline(tx, me, pipelineId, 'update')
     if (!pipeline.archivedAt) fail('O pipeline não está arquivado')
+    await assertTeamsMayLeaveDefault(tx, me, await teamsRestoredTo(tx, me.tenantId, pipeline.id), 'restaurar')
     await failOnDuplicate(DUPLICATE_NAME, tx.update(pipelines).set({ archivedAt: null }).where(eq(pipelines.id, pipeline.id)))
     await recordAudit(tx, me, { action: 'pipeline.restored', ...pipelineEntity(pipeline.id), meta: { name: pipeline.name } })
   })
@@ -115,6 +121,24 @@ function linksOfTeams(tx: Reader, tenantId: string, teamIds: ReadonlyArray<strin
 async function effectivePipelineIdsOf(tx: Reader, tenantId: string, teamIds: ReadonlyArray<string>) {
   if (!teamIds.length) return []
   return effectivePipelineIds(teamIds, await linksOfTeams(tx, tenantId, teamIds), await defaultPipelineIdOf(tx, tenantId))
+}
+
+/**
+ * Sem vínculo ativo a equipe usa o padrão do tenant; o primeiro vínculo o tira de vigor e a oportunidade aberta nele sumiria do quadro.
+ * Trava o padrão: quem está criando oportunidade nele termina antes da contagem, e quem chega depois é recusado por `lockPipelineForTeam`.
+ */
+async function assertTeamsMayLeaveDefault(tx: Tx, me: AuthCtx, teamIds: ReadonlyArray<string>, action: string) {
+  if (!teamIds.length) return
+  const defaultId = await defaultPipelineIdOf(tx, me.tenantId)
+  await loadPipeline(tx, me, defaultId, 'update')
+  for (const teamId of teamIds) await assertNoOpenWork(tx, defaultId, teamId, 'no pipeline padrão', action)
+}
+
+/** As equipes vinculadas ao pipeline arquivado que, sem outro vínculo ativo, voltam do padrão para ele ao restaurá-lo. */
+async function teamsRestoredTo(tx: Reader, tenantId: string, pipelineId: string) {
+  const linked = (await tx.select({ teamId: teamPipelines.teamId }).from(teamPipelines).where(eq(teamPipelines.pipelineId, pipelineId))).map((l) => l.teamId)
+  const withOtherLinks = new Set((await linksOfTeams(tx, tenantId, linked)).map((l) => l.teamId))
+  return linked.filter((teamId) => !withOtherLinks.has(teamId))
 }
 
 /** Admin vê todos (inclusive arquivados) com o padrão primeiro; os demais, os efetivos das equipes que enxergam. */
@@ -171,7 +195,9 @@ export async function lockPipelineForTeam(tx: Tx, me: AuthCtx, teamId: string, r
   if (!requestedId && others.length) fail('Escolha o pipeline')
   const pipeline = await lockOpenPipeline(tx, me, requestedId ?? first!)
   if (!effective.includes(pipeline.id)) fail(NOT_LINKED)
+  // Sem vínculo, o pipeline é o padrão, e um primeiro vínculo pode ter sido confirmado enquanto esperávamos o lock dele.
   if (links.some((l) => l.pipelineId === pipeline.id)) await lockLink(tx, pipeline.id, teamId)
+  else if ((await linksOfTeams(tx, me.tenantId, [teamId])).length) fail(NOT_LINKED)
   return pipeline.id
 }
 
@@ -189,6 +215,8 @@ export async function linkTeamToPipelineFor(me: AuthCtx, pipelineId: string, tea
   await db.transaction(async (tx) => {
     const pipeline = await lockOpenPipeline(tx, me, pipelineId)
     await assertTeamInTenant(tx, me.tenantId, teamId)
+    const [activeLink] = await linksOfTeams(tx, me.tenantId, [teamId])
+    if (!activeLink && !pipeline.isDefault) await assertTeamsMayLeaveDefault(tx, me, [teamId], 'vincular')
     const linked = await tx.insert(teamPipelines).values({ pipelineId: pipeline.id, teamId, tenantId: me.tenantId }).onConflictDoNothing().returning()
     if (!linked.length) return
     await recordAudit(tx, me, { action: 'pipeline.team_linked', ...pipelineEntity(pipeline.id), meta: { teamId, name: pipeline.name } })
@@ -205,8 +233,7 @@ export async function unlinkTeamFromPipelineFor(me: AuthCtx, pipelineId: string,
       .where(and(eq(teamPipelines.pipelineId, pipeline.id), eq(teamPipelines.teamId, teamId), eq(teamPipelines.tenantId, me.tenantId)))
       .returning()
     if (!removed.length) return
-    const open = await openOpportunitiesIn(tx, pipeline.id, teamId)
-    if (open > 0) fail(`A equipe tem ${countOpportunities(open)} em etapa aberta neste pipeline; mova ou feche antes de desvincular`)
+    await assertNoOpenWork(tx, pipeline.id, teamId, 'neste pipeline', 'desvincular')
     await recordAudit(tx, me, { action: 'pipeline.team_unlinked', ...pipelineEntity(pipeline.id), meta: { teamId, name: pipeline.name } })
   })
 }

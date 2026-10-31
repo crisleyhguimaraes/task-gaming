@@ -1,10 +1,11 @@
 import type { AuthCtx } from '#/server/roles'
 import { fail, isAdmin } from '#/server/roles'
+import { plural } from './format'
 
 export const MAX_CHALLENGE_BASE_POINTS = 1000
 export const MAX_SCORED_ATTEMPTS_PER_DAY = 100
 
-export const countAttempts = (n: number) => `${n} ${n === 1 ? 'tentativa' : 'tentativas'}`
+export const countAttempts = (n: number) => plural(n, 'tentativa', 'tentativas')
 
 /** Quem pode competir: a equipe dona (implícita), as vinculadas ou, com `tenantWide`, todas as do tenant. */
 export type ChallengeReach = { teamId: string; tenantWide: boolean; sharedTeamIds: ReadonlyArray<string> }

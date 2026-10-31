@@ -1,4 +1,5 @@
 import type { StageKind } from '#/db/schema'
+import { plural } from './format'
 
 export const defaultStages: ReadonlyArray<{ name: string; kind: StageKind; probability: number }> = [
   { name: 'Novo', kind: 'open', probability: 10 },
@@ -24,7 +25,7 @@ export function effectivePipelineIds(teamIds: ReadonlyArray<string>, links: Read
   return [...new Set(ids)]
 }
 
-export const countOpportunities = (n: number) => `${n} ${n === 1 ? 'oportunidade' : 'oportunidades'}`
+export const countOpportunities = (n: number) => plural(n, 'oportunidade', 'oportunidades')
 
 // toPrecision(15) descarta o ruído de ponto flutuante (1.005 * 100 = 100.49999999999999) antes de arredondar.
 export const toCents = (reais: number) => Math.round(Number((reais * 100).toPrecision(15)))

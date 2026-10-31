@@ -46,7 +46,7 @@ function Board() {
 
   async function exportCsv() {
     try {
-      downloadCsv(await exportTasksCsv({ data: { teamId: search.teamId, assigneeId: search.assigneeId, priority: search.priority, search: search.search } }))
+      downloadCsv(await exportTasksCsv({ data: { teamId: search.teamId, assigneeId: search.assigneeId, priority: search.priority, search: search.search, boardId: search.boardId } }))
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao exportar')
@@ -102,7 +102,7 @@ function Board() {
               </button>
             ))}
           </div>
-          {can(me, 'export.csv') && (
+          {can(me, 'export.csv', search.teamId) && (
             <button onClick={exportCsv} className="btn-ghost px-3 py-2 text-xs"><Download className="h-4 w-4" /> CSV</button>
           )}
           {isManager(me) && <Link to="/tasks/new" className="btn-primary px-3 py-2 text-xs"><Plus className="h-4 w-4" /> Tarefa</Link>}

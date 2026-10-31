@@ -3,7 +3,7 @@ import type { ScoringRules } from './scoring'
 
 const SECONDS_PER_MINUTE = 60
 
-// Tempo em segundos. O teto evita que uma tarefa esquecida aberta (browser fechado, almoço) destrua o ritmo — ver plano, "Abandono".
+// Tempo em segundos. O teto evita que uma tarefa esquecida aberta (browser fechado, almoço) destrua o ritmo.
 // Vale em dois momentos, sempre com a mesma regra: closeLogDuration, ao fechar o bloco (é o que fica gravado em durationSeconds),
 // e summarizeLogs, ao totalizar a tarefa (limita de novo os blocos e, só ali, os gaps entre eles).
 export const capFor = (estimatedSeconds: number, { capMultiplier, capMinMinutes }: ScoringRules = FACTORY_RULES) =>

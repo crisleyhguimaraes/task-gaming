@@ -6,7 +6,7 @@ import { canManageBoard, countTasks } from '#/lib/boards'
 import { recordAudit } from './audit.core'
 import { failOnDuplicate } from './duplicate'
 import type { AuthCtx } from './roles'
-import { fail, forbid, requireCan } from './roles'
+import { canManageWith, fail, forbid, requireCan } from './roles'
 import { teamIdsOf } from './scope'
 import { inOpen } from './stats'
 import { assertTeamInTenant } from './teams.core'
@@ -74,12 +74,12 @@ async function linkTeams(tx: Tx, me: AuthCtx, board: { id: string; name: string 
   }
 }
 
-/** Admin cria com ou sem vínculo; líder, só vinculado a equipes que ele lidera. */
+/** Admin cria com ou sem vínculo; líder, só vinculado a equipes que ele lidera e pode vincular (team.link), as mesmas que poderá desvincular depois. */
 export async function createBoardFor(me: AuthCtx, { name, teamIds }: { name: string; teamIds: ReadonlyArray<string> }) {
   requireCan(me, 'board.manage')
   assertValidName(name, 'do board')
   const uniqueTeamIds = [...new Set(teamIds)]
-  if (!canManageBoard(me, uniqueTeamIds)) forbid()
+  if (!canManageBoard(me, uniqueTeamIds) || !uniqueTeamIds.every((teamId) => canManageWith(me, 'team.link', teamId))) forbid()
   return db.transaction(async (tx) => {
     for (const teamId of uniqueTeamIds) await assertTeamInTenant(tx, me.tenantId, teamId)
     const [board] = await failOnDuplicate(DUPLICATE_NAME, tx.insert(boards).values({ tenantId: me.tenantId, name: name.trim() }).returning())
@@ -101,14 +101,14 @@ export async function renameBoardFor(me: AuthCtx, boardId: string, name: string)
   })
 }
 
-export async function archiveBoardFor(me: AuthCtx, boardId: string) {
+export async function archiveBoardFor(me: AuthCtx, boardId: string, now = new Date()) {
   requireCan(me, 'board.manage')
   await db.transaction(async (tx) => {
     const board = await loadManagedBoard(tx, me, boardId)
     if (board.archivedAt) fail('O board já está arquivado')
     const live = await liveTasksOn(tx, board.id)
     if (live > 0) fail(`O board tem ${countTasks(live)} em aberto; conclua, cancele ou mova antes de arquivar`)
-    await tx.update(boards).set({ archivedAt: new Date() }).where(eq(boards.id, board.id))
+    await tx.update(boards).set({ archivedAt: now }).where(eq(boards.id, board.id))
     await recordAudit(tx, me, { action: 'board.archived', ...boardEntity(board.id), meta: { name: board.name } })
   })
 }

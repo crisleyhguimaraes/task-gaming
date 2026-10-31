@@ -14,7 +14,7 @@ import { addMember } from './team-members.core'
 
 export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000
 
-export const invitationScope = (me: AuthCtx) => inTenantTeams(invitations, me)
+export const invitationScope = (me: AuthCtx) => inTenantTeams(invitations, me, { capability: 'invitation.manage' })
 
 export async function listInvitationsFor(me: AuthCtx) {
   requireCan(me, 'invitation.manage')
@@ -99,6 +99,7 @@ export async function acceptInvitationCore(token: string, name: string, password
   const r = await validInvitation(token)
   if (r.status !== 'valid') throw new Error('Convite inválido ou expirado')
   const { role, teamRole } = r.inv
+  // NOTE: o Better Auth cria o usuário fora da transação; se ela falhar sobra uma pessoa sem vínculo e com o convite ainda aberto, que o admin coloca na equipe por addTeamMember.
   const { user } = await auth.api.createUser({
     body: { name, email: r.inv.email, password, role, data: { tenantId: r.inv.tenantId, mustChangePassword: false } },
   })

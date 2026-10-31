@@ -100,7 +100,7 @@ function Leads() {
               ) : (
                 <>
                   <span className="text-neutral-500">Pool · {l.teamName}</span>
-                  {isMemberOf(me, l.teamId) && can(me, 'lead.write') && <button onClick={() => claim(l.id)} className="btn-ghost px-2.5 py-1 text-xs">Assumir</button>}
+                  {isMemberOf(me, l.teamId) && can(me, 'lead.write', l.teamId) && <button onClick={() => claim(l.id)} className="btn-ghost px-2.5 py-1 text-xs">Assumir</button>}
                 </>
               )}
             </div>

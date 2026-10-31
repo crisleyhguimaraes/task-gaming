@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { taskDependencies, taskTimeLogs, tasks, teamMembers, users } from '#/db/schema'
-import { boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, updateTaskFor, validatePointsFor } from './tasks.core'
+import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, releaseOpenWork, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, updateTaskFor, validatePointsFor } from './tasks.core'
 import { removeMember } from './team-members.core'
 import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
@@ -156,6 +156,46 @@ describe('tasks.core', () => {
     await finishTaskFor(a, dep.id, new Date(Date.now() + min(9) * 1000))
     const started = await startTaskFor(a, t.id)
     expect(started.status).toBe('in_progress')
+  })
+})
+
+describe('tarefa ativa do HUD', () => {
+  it('prefere a em andamento à pausada', async () => {
+    const me = await addUser(f, { role: 'MEMBER', team: f.team })
+    const paused = await newTask(me.userId)
+    const running = await newTask(me.userId)
+    const t0 = new Date()
+    await startTaskFor(me, paused.id, t0)
+    await startTaskFor(me, running.id, at(t0, 1))
+
+    expect((await activeTaskFor(me))?.id).toBe(running.id)
+  })
+})
+
+describe('relógio injetado', () => {
+  it('liberar o trabalho aberto fecha o log no instante dado', async () => {
+    const me = await addUser(f, { role: 'MEMBER', team: f.team })
+    const task = await newTask(me.userId)
+    const t0 = new Date()
+    await startTaskFor(me, task.id, t0)
+
+    await db.transaction((tx) => releaseOpenWork(tx, me.userId, f.team.id, at(t0, 5)))
+
+    const [log] = await db.select().from(taskTimeLogs).where(eq(taskTimeLogs.taskId, task.id))
+    expect(log).toMatchObject({ stoppedAt: at(t0, 5), durationSeconds: min(5) })
+  })
+
+  it('rejeitar os pontos grava a rejeição no instante dado', async () => {
+    const me = f.members[0]!
+    const task = await newTask(me.userId, min(30))
+    const t0 = new Date()
+    await startTaskFor(me, task.id, t0)
+    await finishTaskFor(me, task.id, at(t0, 1))
+    const rejectedAt = at(t0, 90)
+
+    await validatePointsFor(f.leader, task.id, false, undefined, rejectedAt)
+
+    expect((await db.select().from(tasks).where(eq(tasks.id, task.id)))[0]!.rejectedAt).toEqual(rejectedAt)
   })
 })
 

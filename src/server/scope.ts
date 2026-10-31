@@ -72,8 +72,22 @@ export function activeMembersByTeam(tx: Reader, tenantId: string, teamIds: Reado
     .orderBy(asc(users.name), asc(teamMembers.teamId))
 }
 
-export async function assertMember(tx: Tx, { tenantId, userId, teamId }: { tenantId: string; userId: string; teamId: string }) {
-  // FOR SHARE: desativar o usuário (UPDATE) espera esta transação, então ninguém é atribuído a quem está saindo.
-  const [member] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, userId), activeMembersOf(tenantId, [teamId]))).for('share')
-  if (!member) fail('Responsável não pertence à equipe')
+type Membership = { tenantId: string; userId: string; teamId: string }
+
+/**
+ * FOR SHARE no usuário e no vínculo: desativar (UPDATE do usuário) e sair da equipe (DELETE do vínculo) esperam esta transação,
+ * então ninguém é atribuído a quem está saindo. A ordem usuário, vínculo não cruza com removeMember (vínculo, tarefa) nem com a desativação (usuário, tarefa).
+ */
+export async function lockActiveMember(tx: Tx, { tenantId, userId, teamId }: Membership) {
+  const [member] = await tx
+    .select({ id: users.id })
+    .from(users)
+    .innerJoin(teamMembers, and(eq(teamMembers.userId, users.id), eq(teamMembers.teamId, teamId)))
+    .where(and(eq(users.id, userId), activeMembersOf(tenantId, [teamId])))
+    .for('share')
+  return member !== undefined
+}
+
+export async function assertMember(tx: Tx, membership: Membership) {
+  if (!(await lockActiveMember(tx, membership))) fail('Responsável não pertence à equipe')
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role, TeamRole } from '#/lib/access'
-import { displayRole } from './format'
+import { displayRole, plural } from './format'
 
 const person = (role: Role, memberships: Array<[string, TeamRole]> = []) => ({ role, memberships: memberships.map(([teamId, teamRole]) => ({ teamId, role: teamRole })) })
 
@@ -17,5 +17,16 @@ describe('displayRole', () => {
   it('quem só integra equipes, ou nenhuma, é membro', () => {
     expect(displayRole(person('MEMBER', [['a', 'MEMBER']]))).toBe('Membro')
     expect(displayRole(person('MEMBER'))).toBe('Membro')
+  })
+})
+
+describe('plural', () => {
+  it('um usa o singular', () => {
+    expect(plural(1, 'tarefa', 'tarefas')).toBe('1 tarefa')
+  })
+
+  it('zero e mais de um usam o plural', () => {
+    expect(plural(0, 'tarefa', 'tarefas')).toBe('0 tarefas')
+    expect(plural(2, 'tarefa', 'tarefas')).toBe('2 tarefas')
   })
 })

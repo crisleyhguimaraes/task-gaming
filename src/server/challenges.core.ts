@@ -8,12 +8,12 @@ import { teamsAuditMeta } from './catalog.core'
 import type { TeamsDiff } from './catalog.core'
 import type { AuthCtx } from './roles'
 import { canAccessTeam, canManage, canManageWith, fail, forbid, isAdmin, requireCan } from './roles'
-import { inOpen } from './stats'
+import { inOpen, validPoints } from './stats'
 import { assertTeamInTenant } from './teams.core'
 import type { Reader, Tx } from './tx'
 
-/** Tentativa que vale para tempo e recorde: concluída, sem validação pendente e não rejeitada. */
-export const validAttempt = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false), isNull(tasks.rejectedAt))
+/** Tentativa que vale para tempo e recorde: a mesma regra de "conta de verdade" das estatísticas. */
+export const validAttempt = validPoints
 
 /** Tentativa que gastou uma das vagas pontuadas do dia: concluída, não rejeitada e com pontos, mesmo que retidos para validação. */
 export const scoringAttempt = and(eq(tasks.status, 'finished'), isNull(tasks.rejectedAt), gt(tasks.awardedPoints, 0))
@@ -317,12 +317,12 @@ export async function setChallengeTeamsFor(me: AuthCtx, challengeId: string, sha
   })
 }
 
-export async function archiveChallengeFor(me: AuthCtx, challengeId: string) {
+export async function archiveChallengeFor(me: AuthCtx, challengeId: string, now = new Date()) {
   await db.transaction(async (tx) => {
     const [c] = await tx.select().from(challenges).where(and(eq(challenges.id, challengeId), eq(challenges.tenantId, me.tenantId)))
     if (!c) fail('Desafio não encontrado')
     if (c.createdById !== me.userId && !canManage(me, c)) forbid()
-    await tx.update(challenges).set({ archivedAt: new Date() }).where(eq(challenges.id, c.id))
+    await tx.update(challenges).set({ archivedAt: now }).where(eq(challenges.id, c.id))
     await recordAudit(tx, me, { action: 'challenge.archived', entityType: 'challenge', entityId: c.id, meta: { title: c.title } })
   })
 }

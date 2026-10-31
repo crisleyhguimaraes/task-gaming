@@ -1,6 +1,5 @@
 import type { StageKind } from '#/db/schema'
-
-const MS_PER_DAY = 86_400_000
+import { MS_PER_DAY } from './goals'
 
 type StageRef = { id: string; kind: StageKind; sortOrder: number }
 type StageChange = { opportunityId: string; toStageId: string }

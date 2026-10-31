@@ -3,6 +3,8 @@ import { isAdmin, isManager } from '#/server/roles'
 
 const pad = (n: number) => n.toString().padStart(2, '0')
 
+export const plural = (n: number, singular: string, pluralForm: string) => `${n} ${n === 1 ? singular : pluralForm}`
+
 /** 05:03 ou 1:05:03 */
 export function fmtClock(secs: number) {
   const h = Math.floor(secs / 3600)

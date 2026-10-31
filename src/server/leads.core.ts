@@ -8,10 +8,10 @@ import { leadsPageSize, parseLeadRow, poolOwnerFilter, takeLeastLoaded } from '#
 import { recordAudit } from './audit.core'
 import { listNotesFor } from './notes.core'
 import type { AuthCtx } from './roles'
-import { canManage, canSee, fail, forbid } from './roles'
-import { activeMembersByTeam, activeMembersOf, assertMember, inMemberTeams, inTenantTeams, inTeams } from './scope'
+import { can, canAccessTeam, canManage, canManageWith, fail, forbid, requireCan } from './roles'
+import { activeMembersByTeam, activeMembersOf, assertMember, inTenantTeams, inTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
-import type { Reader } from './tx'
+import type { Reader, Tx } from './tx'
 
 const maxDuplicateCandidates = 5
 const maxPageSize = 100
@@ -19,14 +19,11 @@ const hiddenLeadName = 'Lead de outra equipe'
 
 type Lead = typeof leads.$inferSelect
 
-/** Lead se comporta como tarefa: o dono (`ownerId`) faz o papel de `assignedToId` nas regras de visibilidade. */
-const visibility = (lead: Pick<Lead, 'teamId' | 'ownerId'>) => ({ teamId: lead.teamId, assignedToId: lead.ownerId })
-
-const canEditLead = (me: AuthCtx, lead: Pick<Lead, 'teamId' | 'ownerId'>) => canManage(me, lead) || lead.ownerId === me.userId
+const canEditLead = (me: AuthCtx, lead: Pick<Lead, 'teamId' | 'ownerId'>) => can(me, 'lead.write', lead.teamId) && (canManage(me, lead) || lead.ownerId === me.userId)
 
 async function loadLead(tx: Reader, me: AuthCtx, leadId: string) {
   const [lead] = await tx.select().from(leads).where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId)))
-  if (!lead || !canSee(me, visibility(lead))) fail('Lead não encontrado')
+  if (!lead || !canAccessTeam(me, lead.teamId)) fail('Lead não encontrado')
   return lead
 }
 
@@ -59,7 +56,7 @@ async function findDuplicates(tx: Reader, me: AuthCtx, contact: Pick<ParsedLead,
     .orderBy(asc(leads.createdAt))
     .limit(maxDuplicateCandidates)
   return rows.map((lead) =>
-    canSee(me, visibility(lead))
+    canAccessTeam(me, lead.teamId)
       ? { id: lead.id, visible: true, name: lead.name, company: lead.company, email: lead.email, phone: lead.phone }
       : { id: lead.id, visible: false, name: hiddenLeadName, company: null, email: null, phone: null },
   )
@@ -71,7 +68,7 @@ export type CreateLeadResult = { created: true; lead: Lead } | { created: false;
 export async function createLeadFor(me: AuthCtx, data: NewLead, { force = false }: { force?: boolean } = {}): Promise<CreateLeadResult> {
   const parsed = parseOrFail(data)
   const ownerId = data.ownerId ?? null
-  if (!canSee(me, { teamId: data.teamId, assignedToId: ownerId })) forbid()
+  requireCan(me, 'lead.write', data.teamId)
   if (ownerId && ownerId !== me.userId && !canManage(me, data)) forbid()
   return db.transaction(async (tx) => {
     await assertTeamInTenant(tx, me.tenantId, data.teamId)
@@ -159,7 +156,7 @@ export async function getLeadFor(me: AuthCtx, leadId: string) {
     .leftJoin(users, eq(users.id, leads.ownerId))
     .innerJoin(teams, eq(teams.id, leads.teamId))
     .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId)))
-  if (!row || !canSee(me, visibility(row.lead))) fail('Lead não encontrado')
+  if (!row || !canAccessTeam(me, row.lead.teamId)) fail('Lead não encontrado')
   const [leadOpportunities, notes] = await Promise.all([
     db
       .select({
@@ -188,7 +185,7 @@ export async function getLeadFor(me: AuthCtx, leadId: string) {
 export async function deleteLeadFor(me: AuthCtx, leadId: string) {
   await db.transaction(async (tx) => {
     const lead = await loadLead(tx, me, leadId)
-    if (!canManage(me, lead)) forbid()
+    if (!canManageWith(me, 'lead.write', lead.teamId)) forbid()
     const [linked] = await tx.select({ total: count() }).from(opportunities).where(eq(opportunities.leadId, lead.id))
     if (linked!.total > 0) fail('Lead tem oportunidades; não pode ser excluído')
     await tx.delete(leads).where(eq(leads.id, lead.id))
@@ -196,14 +193,16 @@ export async function deleteLeadFor(me: AuthCtx, leadId: string) {
   })
 }
 
-/** Assume um lead sem dono de qualquer equipe onde tenho vínculo. O UPDATE condicional é o lock: só uma chamada concorrente leva. */
+/** Assume um lead sem dono de qualquer equipe onde tenho vínculo e `lead.write`. O UPDATE condicional é o lock: só uma chamada concorrente leva. */
 export async function claimLeadFor(me: AuthCtx, leadId: string) {
   if (!me.memberships.length) fail('Você precisa estar em uma equipe')
+  const writableTeamIds = me.memberships.map((m) => m.teamId).filter((teamId) => can(me, 'lead.write', teamId))
+  if (!writableTeamIds.length) forbid()
   return db.transaction(async (tx) => {
     const [lead] = await tx
       .update(leads)
       .set({ ownerId: me.userId })
-      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), inMemberTeams(leads.teamId, me), isNull(leads.ownerId)))
+      .where(and(eq(leads.id, leadId), eq(leads.tenantId, me.tenantId), inArray(leads.teamId, writableTeamIds), isNull(leads.ownerId)))
       .returning()
     if (!lead) fail('Lead indisponível: já tem dono ou não é da sua equipe')
     await recordAudit(tx, me, { action: 'lead.claimed', entityType: 'lead', entityId: lead.id, changes: { ownerId: { from: null, to: me.userId } } })
@@ -214,12 +213,28 @@ export async function claimLeadFor(me: AuthCtx, leadId: string) {
 export async function assignLeadFor(me: AuthCtx, leadId: string, ownerId: string) {
   await db.transaction(async (tx) => {
     const lead = await loadLead(tx, me, leadId)
-    if (!canManage(me, lead)) forbid()
+    if (!canManageWith(me, 'lead.write', lead.teamId)) forbid()
     await assertMember(tx, { tenantId: me.tenantId, userId: ownerId, teamId: lead.teamId })
     if (lead.ownerId === ownerId) return
     const [updated] = await tx.update(leads).set({ ownerId }).where(eq(leads.id, lead.id)).returning()
     await recordAudit(tx, me, { action: 'lead.assigned', entityType: 'lead', entityId: lead.id, changes: diffFields(lead, updated!, ['ownerId']) })
   })
+}
+
+/** Quem sai da equipe (`teamId`) ou é desativado (sem `teamId`) não pode manter acesso por ser o dono: leads e oportunidades abertas voltam ao pool. Oportunidade fechada é histórico e fica. */
+export async function releaseOwnedRecords(tx: Tx, userId: string, teamId?: string) {
+  const releasedLeads = await tx
+    .update(leads)
+    .set({ ownerId: null })
+    .where(and(eq(leads.ownerId, userId), teamId ? eq(leads.teamId, teamId) : undefined))
+    .returning({ id: leads.id })
+  const openStageIds = tx.select({ id: pipelineStages.id }).from(pipelineStages).where(eq(pipelineStages.kind, 'open'))
+  const releasedOpportunities = await tx
+    .update(opportunities)
+    .set({ ownerId: null })
+    .where(and(eq(opportunities.ownerId, userId), inArray(opportunities.stageId, openStageIds), teamId ? eq(opportunities.teamId, teamId) : undefined))
+    .returning({ id: opportunities.id })
+  return { releasedLeads: releasedLeads.length, releasedOpportunities: releasedOpportunities.length }
 }
 
 export async function myTeamOptionsFor(me: AuthCtx) {

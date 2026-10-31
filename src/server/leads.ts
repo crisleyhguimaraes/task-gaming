@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { leadSources, leadsPageSize, maxImportRows } from '#/lib/leads'
-import { authMiddleware, requireCan } from './auth-context'
+import { authMiddleware } from './auth-context'
 import { importLeadsFor, previewLeadImportFor } from './leads-import.core'
 import { assignLeadFor, claimLeadFor, createLeadFor, deleteLeadFor, getLeadFor, myTeamOptionsFor, listLeadsFor, updateLeadFor } from './leads.core'
 
@@ -53,42 +53,31 @@ export const createLead = createServerFn({ method: 'POST' })
       force: z.boolean().optional(),
     }),
   )
-  .handler(({ data: { force, ...lead }, context: { auth: me } }) => {
-    requireCan(me, 'lead.write')
-    return createLeadFor(me, lead, { force })
-  })
+  .handler(({ data: { force, ...lead }, context: { auth: me } }) => createLeadFor(me, lead, { force }))
 
 export const updateLead = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(leadId.extend({ ...contactFields, source: leadSource, status: leadStatus }))
   .handler(async ({ data: { leadId: id, ...edit }, context: { auth: me } }) => {
-    requireCan(me, 'lead.write')
     await updateLeadFor(me, id, edit)
   })
 
 export const deleteLead = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(leadId)
-  .handler(({ data, context: { auth: me } }) => {
-    requireCan(me, 'lead.write')
-    return deleteLeadFor(me, data.leadId)
-  })
+  .handler(({ data, context: { auth: me } }) => deleteLeadFor(me, data.leadId))
 
 export const claimLead = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(leadId)
   .handler(async ({ data, context: { auth: me } }) => {
-    requireCan(me, 'lead.write')
     await claimLeadFor(me, data.leadId)
   })
 
 export const assignLead = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(leadId.extend({ ownerId: z.string() }))
-  .handler(({ data, context: { auth: me } }) => {
-    requireCan(me, 'lead.write')
-    return assignLeadFor(me, data.leadId, data.ownerId)
-  })
+  .handler(({ data, context: { auth: me } }) => assignLeadFor(me, data.leadId, data.ownerId))
 
 const importRequest = z.object({
   teamId: z.uuid(),

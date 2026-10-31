@@ -6,6 +6,7 @@ import type { Actor } from './audit.core'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { canManage, fail, forbid, isAdmin, requireCan } from './roles'
+import { releaseOwnedRecords } from './leads.core'
 import { assertTeamInTenant } from './teams.core'
 import { releaseOpenWork } from './tasks.core'
 import type { Reader, Tx } from './tx'
@@ -57,7 +58,8 @@ export async function removeMember(tx: Tx, actor: Actor, membership: Membership)
   const [removed] = await tx.delete(teamMembers).where(isMember(membership)).returning({ role: teamMembers.role })
   if (!removed) return
   await releaseOpenWork(tx, membership.userId, membership.teamId)
-  await recordAudit(tx, actor, { action: 'team.member_removed', entityType: 'team', entityId: membership.teamId, meta: { userId: membership.userId, role: removed.role } })
+  const released = await releaseOwnedRecords(tx, membership.userId, membership.teamId)
+  await recordAudit(tx, actor, { action: 'team.member_removed', entityType: 'team', entityId: membership.teamId, meta: { userId: membership.userId, role: removed.role, ...released } })
 }
 
 export async function setRole(tx: Tx, actor: Actor, membership: RoleAssignment) {

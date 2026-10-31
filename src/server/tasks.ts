@@ -112,12 +112,9 @@ export const getToday = createServerFn()
     }
   })
 
-/** Equipes que o usuário gerencia + membros ativos delas (form de nova tarefa). */
 export const getTaskFormOptions = createServerFn()
   .middleware([authMiddleware])
   .handler(({ context: { auth: me } }) => taskFormOptionsFor(me))
-
-// --- Board (fase 4) ---------------------------------------------------------
 
 export const taskFilterSchema = z.object({
   view: z.enum(['kanban', 'list', 'timeline']).default('kanban'),
@@ -192,6 +189,7 @@ export const updateTask = createServerFn({ method: 'POST' })
       scheduledStart: z.iso.date().nullable(),
       scheduledEnd: z.iso.date().nullable(),
       assignedToId: z.string().nullable(),
+      boardId: z.uuid().nullable().optional(),
     }),
   )
   .handler(({ data, context: { auth: me } }) => updateTaskFor(me, data))

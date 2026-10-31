@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
-import { auditEvents, boardTeams, boards, pipelines, teamPipelines, teams } from '#/db/schema'
+import { auditEvents, boardTeams, boards, pipelines, tasks, teamPipelines, teams } from '#/db/schema'
 import type { AuthCtx } from './roles'
 import { archiveBoardFor, createBoardFor } from './boards.core'
 import { createGoalFor, setGoalTeamsFor } from './goals.core'
@@ -165,6 +165,49 @@ describe('createTeamFor e deleteTeamFor exigem team.manage dentro do core', () =
     await deleteTeamFor(admin, team.id)
 
     expect((await auditFor(team.id)).at(-1)).toMatchObject({ action: 'team.deleted', meta: { unlinkedPipelines: 0, unlinkedBoards: 0 } })
+  })
+})
+
+describe('deleteTeamFor × tarefa criada ao mesmo tempo', () => {
+  const insertTask = (teamId: string, executor: Pick<typeof db, 'insert'> = db) =>
+    executor.insert(tasks).values({ tenantId: f.tenant.id, teamId, createdById: f.leader.userId, title: 'Tarefa', basePoints: 10, estimatedSeconds: 600 })
+  const tasksOf = (teamId: string) => db.select({ id: tasks.id }).from(tasks).where(eq(tasks.teamId, teamId))
+  const teamRows = (teamId: string) => db.select({ id: teams.id }).from(teams).where(eq(teams.id, teamId))
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('tarefa já inserida mas ainda não confirmada: a exclusão espera, enxerga a tarefa e recusa, sem apagá-la', async () => {
+    const team = await addTeam(f, uniqueName('Em uso'))
+    let taskInserted!: () => void
+    let commit!: () => void
+    const inserted = new Promise<void>((resolve) => (taskInserted = resolve))
+    const committed = new Promise<void>((resolve) => (commit = resolve))
+    const inserting = db.transaction(async (tx) => {
+      await insertTask(team.id, tx)
+      taskInserted()
+      await committed
+    })
+    await inserted
+
+    const deleting = deleteTeamFor(admin, team.id).then(() => 'excluída', (error: unknown) => String(error))
+    await pause(200)
+    commit()
+    await inserting
+
+    expect(await deleting).toContain('Equipe tem membros, tarefas')
+    expect(await teamRows(team.id)).toHaveLength(1)
+    expect(await tasksOf(team.id)).toHaveLength(1)
+  })
+
+  it('criar tarefa × excluir a equipe: ou a tarefa existe e a equipe fica, ou a criação falha e a equipe some', async () => {
+    for (let round = 0; round < 6; round++) {
+      const team = await addTeam(f, uniqueName('Corrida'))
+
+      const [, inserting] = await Promise.allSettled([deleteTeamFor(admin, team.id), insertTask(team.id)])
+
+      const expected = inserting.status === 'fulfilled' ? 1 : 0
+      expect(await tasksOf(team.id)).toHaveLength(expected)
+      expect(await teamRows(team.id)).toHaveLength(expected)
+    }
   })
 })
 

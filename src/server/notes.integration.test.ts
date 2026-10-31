@@ -4,11 +4,14 @@ import { db } from '#/db'
 import { auditEvents, leads, opportunities, pipelineStages, tasks, teams } from '#/db/schema'
 import { addNoteFor, listNotesFor } from './notes.core'
 import type { AuthCtx } from './roles'
-import { addUser, makeTenant } from './test-fixtures'
+import { attemptChallengeFor } from './tasks.core'
+import { addChallenge, addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 let other: Awaited<ReturnType<typeof makeTenant>>
 let outsider: AuthCtx
+let thirdParty: AuthCtx
+let team2: typeof teams.$inferSelect
 
 const newTask = async () => {
   const [t] = await db
@@ -28,8 +31,10 @@ async function newOpportunity(tenantId: string, teamId: string) {
 beforeAll(async () => {
   f = await makeTenant(1)
   other = await makeTenant(0)
-  const [team2] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Outra equipe' }).returning()
-  outsider = await addUser(f, { role: 'MEMBER', team: team2! })
+  ;[team2] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Outra equipe' }).returning() as [typeof team2]
+  outsider = await addUser(f, { role: 'MEMBER', team: team2 })
+  const [team3] = await db.insert(teams).values({ tenantId: f.tenant.id, name: 'Terceira equipe' }).returning()
+  thirdParty = await addUser(f, { role: 'MEMBER', team: team3!, teamRole: 'LEADER' })
 })
 afterAll(async () => {
   await f.cleanup()
@@ -87,3 +92,34 @@ describe('notas', () => {
     await expect(addNoteFor(f.leader, { type: 'task', id: t.id }, 'a'.repeat(2001))).rejects.toThrow('2000')
   })
 })
+
+describe('notas na tentativa de desafio de outra equipe', () => {
+  const attemptByOutsider = async () => {
+    const challenge = await addChallenge(f, { sharedWith: [team2] })
+    return attemptChallengeFor(outsider, challenge.id)
+  }
+
+  it('o líder da equipe dona lista as notas, como já abre o detalhe da tentativa', async () => {
+    const attempt = await attemptByOutsider()
+    await addNoteFor(outsider, { type: 'task', id: attempt.id }, 'quase no tempo')
+
+    const notes = await listNotesFor(f.leader, { type: 'task', id: attempt.id })
+
+    expect(notes.map((n) => n.body)).toEqual(['quase no tempo'])
+  })
+
+  it('o líder da equipe dona também comenta', async () => {
+    const attempt = await attemptByOutsider()
+
+    await addNoteFor(f.leader, { type: 'task', id: attempt.id }, 'conferido')
+
+    expect((await listNotesFor(outsider, { type: 'task', id: attempt.id })).map((n) => n.body)).toEqual(['conferido'])
+  })
+
+  it('o líder de uma terceira equipe segue sem acesso', async () => {
+    const attempt = await attemptByOutsider()
+
+    await expect(listNotesFor(thirdParty, { type: 'task', id: attempt.id })).rejects.toThrow('Registro não encontrado')
+  })
+})
+

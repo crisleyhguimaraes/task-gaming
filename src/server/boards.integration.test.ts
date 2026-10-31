@@ -68,10 +68,23 @@ describe('createBoardFor', () => {
     expect(await linksOf(repeated.id)).toHaveLength(1)
   })
 
-  it('líder cria vinculado à equipe que lidera', async () => {
-    const created = await createBoardFor(f.leader, { name: uniqueName('Do líder'), teamIds: [f.team.id] })
+  it('líder com team.link delegado cria vinculado à equipe que lidera', async () => {
+    await setCapabilityFor(admin, 'LEADER', 'team.link', true)
+    try {
+      const created = await createBoardFor(await ctxFor(f.leader.userId), { name: uniqueName('Do líder'), teamIds: [f.team.id] })
 
-    expect((await linksOf(created.id)).map((l) => l.teamId)).toEqual([f.team.id])
+      expect((await linksOf(created.id)).map((l) => l.teamId)).toEqual([f.team.id])
+    } finally {
+      await setCapabilityFor(admin, 'LEADER', 'team.link', false)
+    }
+  })
+
+  it('líder sem team.link não cria board vinculado nem à própria equipe, de onde não poderia desvincular', async () => {
+    const name = uniqueName('Sem team.link')
+
+    await expect(createBoardFor(f.leader, { name, teamIds: [f.team.id] })).rejects.toThrow('Sem permissão')
+
+    expect(await db.select().from(boards).where(and(eq(boards.tenantId, f.tenant.id), eq(boards.name, name)))).toHaveLength(0)
   })
 
   it('líder não cria sem vínculo nem vinculado a equipe que não lidera; membro não cria', async () => {
@@ -200,6 +213,15 @@ describe('archiveBoardFor e restoreBoardFor', () => {
     await archiveBoardFor(admin, created.id)
 
     expect((await reload(created.id)).archivedAt).toBeInstanceOf(Date)
+  })
+
+  it('grava o instante do arquivamento recebido', async () => {
+    const created = await boardFor([], 'Com relógio')
+    const now = new Date('2026-03-01T12:00:00Z')
+
+    await archiveBoardFor(admin, created.id, now)
+
+    expect((await reload(created.id)).archivedAt).toEqual(now)
   })
 
   it('recusa arquivar duas vezes e restaurar quem não está arquivado', async () => {

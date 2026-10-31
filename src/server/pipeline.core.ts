@@ -88,17 +88,19 @@ async function insertOpportunity(tx: Tx, me: AuthCtx, lead: { id: string; teamId
 }
 
 export async function createOpportunityFor(me: AuthCtx, leadId: string, data: OpportunityData, now = new Date()) {
-  requireCan(me, 'opportunity.write')
-  return db.transaction(async (tx) => insertOpportunity(tx, me, await loadLead(tx, me, leadId), data, now))
+  return db.transaction(async (tx) => {
+    const lead = await loadLead(tx, me, leadId)
+    requireCan(me, 'opportunity.write', lead.teamId)
+    return insertOpportunity(tx, me, lead, data, now)
+  })
 }
 
 /** Cria a oportunidade e qualifica o lead na mesma transação: nunca um sem o outro. */
 export async function convertLeadFor(me: AuthCtx, leadId: string, data: OpportunityData) {
-  requireCan(me, 'lead.write')
-  requireCan(me, 'opportunity.write')
   return db.transaction(async (tx) => {
     const lead = await loadLead(tx, me, leadId)
-    if (!canEditRecord(me, lead)) forbid()
+    requireCan(me, 'lead.write', lead.teamId)
+    if (!canWriteOpportunity(me, lead)) forbid()
     if (lead.status !== QUALIFIED) {
       await tx.update(leads).set({ status: QUALIFIED }).where(eq(leads.id, lead.id))
       await recordAudit(tx, me, { action: 'lead.updated', entityType: 'lead', entityId: lead.id, changes: { status: { from: lead.status, to: QUALIFIED } } })
@@ -108,11 +110,10 @@ export async function convertLeadFor(me: AuthCtx, leadId: string, data: Opportun
 }
 
 export async function updateOpportunityFor(me: AuthCtx, opportunityId: string, data: OpportunityEdit) {
-  requireCan(me, 'opportunity.write')
   assertValidFields(data)
   return db.transaction(async (tx) => {
     const opp = await loadOpportunity(tx, me, opportunityId)
-    if (!canEditRecord(me, opp)) forbid()
+    if (!canWriteOpportunity(me, opp)) forbid()
     if (data.ownerId && data.ownerId !== opp.ownerId) await assertMember(tx, { tenantId: me.tenantId, userId: data.ownerId, teamId: opp.teamId })
     const [updated] = await tx
       .update(opportunities)
@@ -126,13 +127,12 @@ export async function updateOpportunityFor(me: AuthCtx, opportunityId: string, d
 }
 
 export async function moveOpportunityFor(me: AuthCtx, opportunityId: string, toStageId: string, options: MoveOptions = {}, now?: Date) {
-  requireCan(me, 'opportunity.write')
   if (options.sortOrder !== undefined && !Number.isFinite(options.sortOrder)) fail('Posição inválida')
   return db.transaction(async (tx) => {
     const opp = await loadOpportunity(tx, me, opportunityId)
     // O relógio padrão só é lido depois do lock da linha: assim `changedAt` segue a ordem em que os movimentos simultâneos entram na fila.
     const at = now ?? new Date()
-    if (!canEditRecord(me, opp)) forbid()
+    if (!canWriteOpportunity(me, opp)) forbid()
     const stages = await tx.select().from(pipelineStages).where(eq(pipelineStages.pipelineId, opp.pipelineId))
     const target = stages.find((s) => s.id === toStageId)
     const current = stages.find((s) => s.id === opp.stageId)

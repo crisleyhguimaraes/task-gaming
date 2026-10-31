@@ -4,7 +4,8 @@ import { leads, notes, opportunities, tasks, users } from '#/db/schema'
 import { recordAudit } from './audit.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
-import { canSee, fail } from './roles'
+import { canAccessTeam, fail } from './roles'
+import { canOpenTask } from './tasks.core'
 import type { Tx } from './tx'
 
 export type NoteTarget = { type: 'task' | 'lead' | 'opportunity'; id: string }
@@ -13,21 +14,27 @@ const MAX_BODY = 2000
 
 const noteKey = { task: 'taskId', lead: 'leadId', opportunity: 'opportunityId' } as const
 
-type Visibility = { teamId: string; assignedToId: string | null }
-
-/** Equipe e responsável de cada tipo de alvo, para reaproveitar a regra canSee de tarefas. */
-const visibilityOf: Record<NoteTarget['type'], (tenantId: string, id: string) => Promise<Visibility | undefined>> = {
-  task: async (tenantId, id) =>
-    (await db.select({ teamId: tasks.teamId, assignedToId: tasks.assignedToId }).from(tasks).where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId))))[0],
-  lead: async (tenantId, id) =>
-    (await db.select({ teamId: leads.teamId, assignedToId: leads.ownerId }).from(leads).where(and(eq(leads.id, id), eq(leads.tenantId, tenantId))))[0],
+/** A equipe de lead e oportunidade: quem pode abrir o registro é quem acessa a equipe, não o dono. */
+const teamOf: Record<Exclude<NoteTarget['type'], 'task'>, (tenantId: string, id: string) => Promise<{ teamId: string } | undefined>> = {
+  lead: async (tenantId, id) => (await db.select({ teamId: leads.teamId }).from(leads).where(and(eq(leads.id, id), eq(leads.tenantId, tenantId))))[0],
   opportunity: async (tenantId, id) =>
-    (await db.select({ teamId: opportunities.teamId, assignedToId: opportunities.ownerId }).from(opportunities).where(and(eq(opportunities.id, id), eq(opportunities.tenantId, tenantId))))[0],
+    (await db.select({ teamId: opportunities.teamId }).from(opportunities).where(and(eq(opportunities.id, id), eq(opportunities.tenantId, tenantId))))[0],
 }
 
-async function assertVisible(me: AuthCtx, { type, id }: NoteTarget) {
-  const target = await visibilityOf[type](me.tenantId, id)
-  if (!target || !canSee(me, target)) fail('Registro não encontrado')
+async function canOpenTarget(me: AuthCtx, { type, id }: NoteTarget) {
+  if (type === 'task') {
+    const [task] = await db
+      .select({ tenantId: tasks.tenantId, teamId: tasks.teamId, assignedToId: tasks.assignedToId, challengeId: tasks.challengeId })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.tenantId, me.tenantId)))
+    return task !== undefined && (await canOpenTask(db, me, task))
+  }
+  const record = await teamOf[type](me.tenantId, id)
+  return record !== undefined && canAccessTeam(me, record.teamId)
+}
+
+async function assertVisible(me: AuthCtx, target: NoteTarget) {
+  if (!(await canOpenTarget(me, target))) fail('Registro não encontrado')
 }
 
 export async function addNoteFor(me: AuthCtx, target: NoteTarget, rawBody: string) {

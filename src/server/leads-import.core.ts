@@ -71,7 +71,7 @@ async function planImport(tx: Reader, tenantId: string, rows: Array<RawLeadRow>)
 }
 
 async function authorizeImport(tx: Reader, me: AuthCtx, { teamId, rows }: ImportRequest) {
-  requireCan(me, 'lead.import')
+  requireCan(me, 'lead.import', teamId)
   if (rows.length > maxImportRows) fail(`Importe no máximo ${maxImportRows} linhas por vez`)
   await assertTeamInTenant(tx, me.tenantId, teamId)
   if (!canManage(me, { teamId })) forbid()

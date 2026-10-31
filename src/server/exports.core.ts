@@ -76,7 +76,7 @@ export async function exportTasksCsvFor(me: AuthCtx, filters: TaskListFilters, r
     .from(tasks)
     .leftJoin(users, eq(users.id, tasks.assignedToId))
     .innerJoin(teams, eq(teams.id, tasks.teamId))
-    .where(taskListWhere(me, filters))
+    .where(taskListWhere(me, filters, 'export.csv'))
     .orderBy(asc(tasks.createdAt), asc(tasks.id))
     .limit(rowLimit + 1)
   assertWithinLimit(rows.length, rowLimit)

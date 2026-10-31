@@ -64,7 +64,8 @@ export async function updateTeamFor(me: AuthCtx, teamId: string, fields: TeamFie
 export async function deleteTeamFor(me: AuthCtx, teamId: string) {
   requireCan(me, 'team.manage')
   await db.transaction(async (tx) => {
-    const team = await loadTeam(tx, me, teamId)
+    // FOR UPDATE conflita com o FOR KEY SHARE que o insert de tarefa/membro/desafio toma na equipe: o insert em curso termina antes da contagem, e o que chega depois falha por FK.
+    const team = await loadTeam(tx, me, teamId, 'update')
     for (const table of [teamMembers, tasks, challenges, leads]) {
       const [owned] = await tx.select({ n: count() }).from(table).where(and(eq(table.teamId, teamId), eq(table.tenantId, me.tenantId)))
       if (owned!.n > 0) fail('Equipe tem membros, tarefas, desafios ou leads; não pode ser excluída')

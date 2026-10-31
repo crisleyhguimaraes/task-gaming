@@ -26,7 +26,7 @@ function LeadPage() {
   const navigate = useNavigate()
   const [error, setError] = React.useState<string | null>(null)
   const teamMembers = options.members.filter((m) => m.teamId === lead.teamId)
-  const canClaim = !lead.ownerId && isMemberOf(me, lead.teamId) && can(me, 'lead.write')
+  const canClaim = !lead.ownerId && isMemberOf(me, lead.teamId) && can(me, 'lead.write', lead.teamId)
 
   async function act(fn: () => Promise<unknown>) {
     try {
@@ -65,7 +65,7 @@ function LeadPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canClaim && <button onClick={() => act(() => claimLead({ data: { leadId: lead.id } }))} className="btn-primary px-3 py-2 text-xs">Assumir</button>}
-          {canEdit && can(me, 'opportunity.write') && (
+          {canEdit && can(me, 'opportunity.write', lead.teamId) && (
             <ConvertLeadModal lead={lead} onDone={(opportunityId) => navigate({ to: '/opportunities/$opportunityId', params: { opportunityId } })} />
           )}
           {canManage && (

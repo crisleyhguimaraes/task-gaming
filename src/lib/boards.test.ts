@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Role, TeamRole } from '#/lib/access'
 import type { AuthCtx } from '#/server/roles'
-import { canManageBoard } from './boards'
+import { canManageBoard, countTasks } from './boards'
 
 const A = 'team-a'
 const B = 'team-b'
@@ -38,5 +38,11 @@ describe('canManageBoard', () => {
 
   it('o ajuste do tenant que tira board.manage do líder vale', () => {
     expect(canManageBoard(person('MEMBER', [[A, 'LEADER']], { LEADER: { 'board.manage': false } }), [A])).toBe(false)
+  })
+})
+
+describe('countTasks', () => {
+  it('concorda com o número', () => {
+    expect([0, 1, 2].map(countTasks)).toEqual(['0 tarefas', '1 tarefa', '2 tarefas'])
   })
 })

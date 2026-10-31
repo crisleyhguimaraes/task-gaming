@@ -4,11 +4,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, challenges, tasks } from '#/db/schema'
 import { MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
-import { challengeRanking, createChallengeFor, listChallengesFor } from './challenges.core'
+import { archiveChallengeFor, challengeRanking, createChallengeFor, listChallengesFor } from './challenges.core'
 import { ForbiddenError } from './roles'
 import type { AuthCtx } from './roles'
 import { attemptChallengeFor, cancelTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, startTaskFor, updateTaskFor, validatePointsFor } from './tasks.core'
-import { addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
+import { addChallenge, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
 const min = (n: number) => n * 60
@@ -349,6 +349,18 @@ describe('criar desafio', () => {
     expect(c.scoredAttemptsPerDay).toBe(3)
     const [event] = await db.select().from(auditEvents).where(eq(auditEvents.entityId, c.id))
     expect(event!.meta).toMatchObject({ scoredAttemptsPerDay: 3 })
+  })
+})
+
+describe('arquivar desafio', () => {
+  it('grava o instante do arquivamento recebido', async () => {
+    const c = await addChallenge(f, { createdById: f.leader.userId })
+    const now = new Date('2026-03-01T12:00:00Z')
+
+    await archiveChallengeFor(f.leader, c.id, now)
+
+    const [archived] = await db.select().from(challenges).where(eq(challenges.id, c.id))
+    expect(archived!.archivedAt).toEqual(now)
   })
 })
 

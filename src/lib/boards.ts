@@ -1,5 +1,6 @@
 import type { AuthCtx } from '#/server/roles'
 import { can, isAdmin, roleIn } from '#/server/roles'
+import { plural } from './format'
 
 /** Valor do filtro de tarefas que pede as que não estão em nenhum board. */
 export const NO_BOARD = 'none'
@@ -12,4 +13,4 @@ export function canManageBoard(me: BoardManager, linkedTeamIds: ReadonlyArray<st
   return linkedTeamIds.length > 0 && linkedTeamIds.every((teamId) => roleIn(me, teamId) === 'LEADER' && can(me, 'board.manage', teamId))
 }
 
-export const countTasks = (n: number) => `${n} ${n === 1 ? 'tarefa' : 'tarefas'}`
+export const countTasks = (n: number) => plural(n, 'tarefa', 'tarefas')

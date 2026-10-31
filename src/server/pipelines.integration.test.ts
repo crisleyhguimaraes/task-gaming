@@ -7,6 +7,7 @@ import { setCapabilityFor } from './permissions.core'
 import { archivePipelineFor, createPipelineFor, linkTeamToPipelineFor, listPipelinesFor, renamePipelineFor, restorePipelineFor, unlinkTeamFromPipelineFor } from './pipelines.core'
 import type { AuthCtx } from './roles'
 import { listStagesFor } from './stages.core'
+import { addLead, addOpportunity } from './test-crm-fixtures'
 import { addAdmin, addTeam, addUser, ctxFor, makeTenant } from './test-fixtures'
 
 type Fixture = Awaited<ReturnType<typeof makeTenant>>
@@ -143,6 +144,15 @@ describe('archivePipelineFor e restorePipelineFor', () => {
 
     expect((await reload(created.id)).archivedAt).toBeInstanceOf(Date)
     expect(await actionsFor(created.id)).toEqual(['pipeline.created', 'pipeline.archived'])
+  })
+
+  it('grava como momento do arquivamento o relógio recebido', async () => {
+    const created = await createPipelineFor(admin, uniqueName('Com relógio'))
+    const now = new Date('2026-03-04T10:00:00Z')
+
+    await archivePipelineFor(admin, created.id, now)
+
+    expect((await reload(created.id)).archivedAt).toEqual(now)
   })
 
   it('recusa arquivar o pipeline padrão', async () => {
@@ -401,6 +411,77 @@ describe('unlinkTeamFromPipelineFor', () => {
   })
 })
 
+describe('o pipeline padrão deixa de valer quando a equipe ganha o primeiro vínculo', () => {
+  async function teamWithOpenDealInDefault(label: string) {
+    const team = await addTeam(f, uniqueName(label))
+    const opp = await openDealIn(f.pipeline.id, team.id)
+    return { team, opp }
+  }
+
+  it('recusa o primeiro vínculo enquanto a equipe tem oportunidade aberta no padrão, com a contagem, e não vincula', async () => {
+    const { team } = await teamWithOpenDealInDefault('Usa o padrão')
+    await openDealIn(f.pipeline.id, team.id)
+    const created = await createPipelineFor(admin, uniqueName('Novo destino'))
+
+    await expect(linkTeamToPipelineFor(admin, created.id, team.id)).rejects.toThrow('2 oportunidades em etapa aberta')
+    expect(await linksOf(created.id)).toHaveLength(0)
+  })
+
+  it('permite o primeiro vínculo quando no padrão só resta histórico fechado', async () => {
+    const { team, opp } = await teamWithOpenDealInDefault('Só histórico')
+    await closeDeal(opp.id, f.pipeline.id)
+    const created = await createPipelineFor(admin, uniqueName('Destino livre'))
+
+    await linkTeamToPipelineFor(admin, created.id, team.id)
+
+    expect(await linksOf(created.id)).toHaveLength(1)
+  })
+
+  it('o trabalho aberto de outra equipe no padrão não impede o vínculo', async () => {
+    await teamWithOpenDealInDefault('Vizinha')
+    const team = await addTeam(f, uniqueName('Sem trabalho'))
+    const created = await createPipelineFor(admin, uniqueName('Destino da outra'))
+
+    await linkTeamToPipelineFor(admin, created.id, team.id)
+
+    expect(await linksOf(created.id)).toHaveLength(1)
+  })
+
+  it('o segundo vínculo ativo não olha o padrão, que já não valia para a equipe', async () => {
+    const team = await addTeam(f, uniqueName('Já vinculada'))
+    const [first, second] = [await createPipelineFor(admin, uniqueName('Primeiro')), await createPipelineFor(admin, uniqueName('Segundo'))]
+    await linkTeamToPipelineFor(admin, first.id, team.id)
+    await addOpportunity(f, await addLead(f, team.id), null)
+
+    await linkTeamToPipelineFor(admin, second.id, team.id)
+
+    expect(await linksOf(second.id)).toHaveLength(1)
+  })
+
+  it('vincular a equipe ao próprio padrão não tira nada de vigor e é permitido com trabalho aberto', async () => {
+    const { team } = await teamWithOpenDealInDefault('Fixa o padrão')
+
+    await linkTeamToPipelineFor(admin, f.pipeline.id, team.id)
+
+    expect(await linksOf(f.pipeline.id)).toEqual(expect.arrayContaining([expect.objectContaining({ teamId: team.id })]))
+  })
+
+  it('restaurar pipeline cujo único vínculo da equipe estava arquivado é recusado enquanto ela tem trabalho aberto no padrão', async () => {
+    const team = await addTeam(f, uniqueName('Volta ao vínculo'))
+    const created = await createPipelineFor(admin, uniqueName('Arquivado e restaurável'))
+    await linkTeamToPipelineFor(admin, created.id, team.id)
+    await archivePipelineFor(admin, created.id)
+    const opp = await openDealIn(f.pipeline.id, team.id)
+
+    await expect(restorePipelineFor(admin, created.id)).rejects.toThrow('1 oportunidade em etapa aberta')
+    expect((await reload(created.id)).archivedAt).not.toBeNull()
+
+    await closeDeal(opp.id, f.pipeline.id)
+    await restorePipelineFor(admin, created.id)
+    expect((await reload(created.id)).archivedAt).toBeNull()
+  })
+})
+
 describe('concorrência', () => {
   const rounds = 6
 
@@ -441,6 +522,31 @@ describe('concorrência', () => {
       expect(archived && current!.stageId === first.id).toBe(false)
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
     }
+  })
+
+  it('vínculo confirmado enquanto a criação espera o padrão: a criação é recusada e nada fica aberto no padrão', async () => {
+    const team = await addTeam(f, uniqueName('Corrida do padrão'))
+    const created = await createPipelineFor(admin, uniqueName('Destino da corrida'))
+    const lead = await addLead(f, team.id)
+    let locked!: () => void
+    let release!: () => void
+    const defaultLocked = new Promise<void>((resolve) => (locked = resolve))
+    const released = new Promise<void>((resolve) => (release = resolve))
+    const linking = db.transaction(async (tx) => {
+      await tx.select().from(pipelines).where(eq(pipelines.id, f.pipeline.id)).for('update')
+      locked()
+      await released
+      await tx.insert(teamPipelines).values({ pipelineId: created.id, teamId: team.id, tenantId: f.tenant.id })
+    })
+    await defaultLocked
+
+    const creating = createOpportunityFor(admin, lead.id, deal).then(() => 'criada', (error: unknown) => String(error))
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    release()
+    await linking
+
+    expect(await creating).toContain('não está vinculado')
+    expect(await db.select({ id: opportunities.id }).from(opportunities).where(eq(opportunities.teamId, team.id))).toHaveLength(0)
   })
 
   it('desvincular × criar oportunidade: nunca fica trabalho aberto em pipeline desvinculado', async () => {

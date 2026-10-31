@@ -3,7 +3,8 @@ import { db } from '#/db'
 import { eq } from 'drizzle-orm'
 import { challenges, taskTimeLogs, tasks } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { attentionCount, poolOf, ranking, teamFeed, teamPageFor } from './stats'
+import { attentionCount, heroStats, poolOf, ranking, streak, teamFeed, teamPageFor } from './stats'
+import { startTaskFor, finishTaskFor, validatePointsFor } from './tasks.core'
 import { addMember, removeMember } from './team-members.core'
 import { addAdmin, addTeam, addUser, joinTeam, makeTenant } from './test-fixtures'
 
@@ -66,6 +67,41 @@ describe('ranking', () => {
     expect(await userIds(f.members[0]!)).not.toContain(inB.userId)
     expect(await userIds(admin)).toContain(inB.userId)
     expect(await userIds(admin, teamB.id)).toEqual([inB.userId])
+  })
+})
+
+describe('tarefa com pontos rejeitados', () => {
+  const TZ = 'America/Sao_Paulo'
+  const FAST_FINISH_MS = 60_000
+
+  async function rejectedBy(owner: AuthCtx) {
+    const [task] = await seed(f.team.id, { assignedToId: owner.userId, estimatedSeconds: 1800 }).returning()
+    const startedAt = new Date()
+    await startTaskFor(owner, task!.id, startedAt)
+    await finishTaskFor(owner, task!.id, new Date(startedAt.getTime() + FAST_FINISH_MS))
+    await validatePointsFor(f.leader, task!.id, false)
+  }
+
+  it('não vale como dia de sequência', async () => {
+    const owner = await addUser(f, { role: 'MEMBER', team: f.team })
+    await rejectedBy(owner)
+
+    expect(await streak(owner.userId, TZ)).toBe(0)
+  })
+
+  it('não entra no ritmo nem no foco', async () => {
+    const owner = await addUser(f, { role: 'MEMBER', team: f.team })
+    await rejectedBy(owner)
+
+    expect((await heroStats(owner.userId)).total).toBe(0)
+  })
+
+  it('não conta como concluída no ranking', async () => {
+    const owner = await addUser(f, { role: 'MEMBER', team: f.team })
+    await rejectedBy(owner)
+
+    const row = (await ranking(f.leader, 'all', TZ, f.team.id)).find((r) => r.userId === owner.userId)
+    expect(row).toMatchObject({ points: 0, finished: 0 })
   })
 })
 
