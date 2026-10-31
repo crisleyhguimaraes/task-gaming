@@ -13,3 +13,5 @@ __unconfig*
 todos.json
 
 .playwright-mcp/
+
+.claude/skills/impeccable/scripts/bin/
