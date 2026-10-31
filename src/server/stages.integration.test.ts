@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, leads, opportunities, opportunityStageChanges, pipelineStages } from '#/db/schema'
@@ -26,7 +26,7 @@ async function opportunityIn(stageId: string) {
 }
 
 const auditActions = async (entityId: string) =>
-  (await db.select({ action: auditEvents.action }).from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.entityId, entityId)))).map((e) => e.action)
+  (await db.select({ action: auditEvents.action }).from(auditEvents).where(and(eq(auditEvents.tenantId, f.tenant.id), eq(auditEvents.entityId, entityId))).orderBy(asc(auditEvents.createdAt))).map((e) => e.action)
 
 const newStage = (name: string, kind: StageKind = 'open', probability = 30) => createStageFor(admin, { name, kind, probability })
 

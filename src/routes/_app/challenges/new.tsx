@@ -2,6 +2,7 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
 import { appRoute } from '#/lib/app-route'
+import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
 import { createChallenge } from '#/server/challenges'
 import { getTaskFormOptions } from '#/server/tasks'
 
@@ -29,6 +30,7 @@ function NewChallenge() {
           description: String(f.get('description') ?? ''),
           basePoints: Number(f.get('basePoints')),
           estimatedMinutes: Number(f.get('estimatedMinutes')),
+          scoredAttemptsPerDay: Number(f.get('scoredAttemptsPerDay')),
           teamId: String(f.get('teamId')),
         },
       })
@@ -49,9 +51,10 @@ function NewChallenge() {
       <form onSubmit={onSubmit} className="card space-y-4">
         <div className="space-y-1"><label htmlFor="title">Título</label><input id="title" name="title" required minLength={2} maxLength={200} placeholder="Ex: Processar 20 pedidos" /></div>
         <div className="space-y-1"><label htmlFor="description">Descrição / regras</label><textarea id="description" name="description" rows={3} maxLength={2000} /></div>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="space-y-1"><label htmlFor="basePoints">Pontos</label><input id="basePoints" name="basePoints" type="number" min={1} max={10000} defaultValue={20} required /></div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="space-y-1"><label htmlFor="basePoints">Pontos</label><input id="basePoints" name="basePoints" type="number" min={1} max={MAX_CHALLENGE_BASE_POINTS} defaultValue={20} required /></div>
           <div className="space-y-1"><label htmlFor="estimatedMinutes">Meta (min)</label><input id="estimatedMinutes" name="estimatedMinutes" type="number" min={1} max={1440} defaultValue={30} required /></div>
+          <div className="space-y-1"><label htmlFor="scoredAttemptsPerDay">Tentativas pontuadas por dia</label><input id="scoredAttemptsPerDay" name="scoredAttemptsPerDay" type="number" min={1} max={MAX_SCORED_ATTEMPTS_PER_DAY} defaultValue={1} required /></div>
           <div className="space-y-1">
             <label htmlFor="teamId">Equipe</label>
             <select id="teamId" name="teamId" defaultValue={myTeams[0]?.id}>

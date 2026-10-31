@@ -1,15 +1,17 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import type { Priority } from '#/db/schema'
 import { challenges, opportunities, taskTimeLogs, tasks, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
+import { scoringAttempt, validAttempt } from './challenges.core'
 import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
 import { canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
 import { assertMember, inTeams, inTenantTeams } from './scope'
 import { scoreTask } from './scoring'
+import { localDay, localDayOf, tenantSettings } from './stats'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
 import type { Tx } from './tx'
 
@@ -31,11 +33,17 @@ async function closeOpenLogs(tx: Tx, where: ReturnType<typeof eq>, now: Date) {
   return open.map((l) => l.taskId)
 }
 
+type Task = typeof tasks.$inferSelect
+
+/** FOR UPDATE: duas operações simultâneas na mesma tarefa se enfileiram em vez de decidir sobre o mesmo estado. */
 async function loadTask(tx: Tx, me: AuthCtx, taskId: string) {
-  const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId)))
+  const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, taskId), eq(tasks.tenantId, me.tenantId))).for('update')
   if (!task || !canSee(me, task)) fail('Tarefa não encontrada')
   return task
 }
+
+/** Tentativa de desafio é do executor: nem o líder pausa ou conclui por ele. */
+const canOperate = (me: AuthCtx, task: Task) => task.assignedToId === me.userId || (task.challengeId === null && canManage(me, task))
 
 /** Inicia (ou retoma / puxa do pool). Pausa qualquer outra tarefa do usuário. */
 export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()) {
@@ -76,7 +84,7 @@ export async function pauseTaskFor(me: AuthCtx, taskId: string, now = new Date()
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'in_progress') fail('Tarefa não está em andamento')
-    if (task.assignedToId !== me.userId && !canManage(me, task)) forbid()
+    if (!canOperate(me, task)) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const [updated] = await tx.update(tasks).set({ status: 'paused' }).where(eq(tasks.id, taskId)).returning()
     return updated!
@@ -95,6 +103,7 @@ export type FinishSummary = {
   pausePenalty: number
   finalPoints: number
   needsValidation: boolean
+  scored: boolean
   manual: boolean
   isNewRecord: boolean
 }
@@ -104,19 +113,33 @@ async function challengeBest(tx: Tx, challengeId: string, excludeTaskId: string)
   const [r] = await tx
     .select({ best: sql<number | null>`min(${tasks.movingSeconds})` })
     .from(tasks)
-    .where(and(eq(tasks.challengeId, challengeId), eq(tasks.status, 'finished'), eq(tasks.needsValidation, false), sql`${tasks.id} <> ${excludeTaskId}`))
+    .where(and(eq(tasks.challengeId, challengeId), validAttempt, sql`${tasks.id} <> ${excludeTaskId}`))
   return r?.best ?? null
+}
+
+/** Tentativa de desafio rende pontos até o limite diário de tentativas pontuadas; depois vale só pelo tempo e pelo recorde. */
+async function rendersPoints(tx: Tx, task: Task, userId: string, now: Date) {
+  if (!task.challengeId) return true
+  const [challenge] = await tx.select({ perDay: challenges.scoredAttemptsPerDay }).from(challenges).where(eq(challenges.id, task.challengeId))
+  const { timezone } = await tenantSettings(task.tenantId)
+  const [done] = await tx
+    .select({ n: count() })
+    .from(tasks)
+    .where(and(eq(tasks.challengeId, task.challengeId), eq(tasks.assignedToId, userId), scoringAttempt, sql`${localDay(tasks.finishedAt, timezone)} = ${localDayOf(now, timezone)}`))
+  return done!.n < challenge!.perDay
 }
 
 export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date()): Promise<FinishSummary> {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
     if (task.status !== 'in_progress' && task.status !== 'paused') fail('Tarefa não está em execução')
-    if (task.assignedToId !== me.userId && !canManage(me, task)) forbid()
+    if (!canOperate(me, task)) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const logs = await tx.select().from(taskTimeLogs).where(eq(taskTimeLogs.taskId, taskId)).orderBy(asc(taskTimeLogs.startedAt))
     const { movingSeconds, elapsedSeconds } = summarizeLogs(logs, task.estimatedSeconds, now)
     const score = scoreTask({ basePoints: task.basePoints, estimatedSeconds: task.estimatedSeconds, movingSeconds, elapsedSeconds })
+    const scored = await rendersPoints(tx, task, me.userId, now)
+    const finalPoints = scored ? score.finalPoints : 0
     const prevBest = task.challengeId ? await challengeBest(tx, task.challengeId, task.id) : null
     const isNewRecord = task.challengeId !== null && !score.needsValidation && (prevBest === null || movingSeconds < prevBest)
     await tx
@@ -126,7 +149,7 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
         finishedAt: now,
         movingSeconds,
         elapsedSeconds,
-        awardedPoints: score.finalPoints,
+        awardedPoints: finalPoints,
         needsValidation: score.needsValidation,
       })
       .where(eq(tasks.id, taskId))
@@ -138,6 +161,8 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
       movingSeconds,
       elapsedSeconds,
       ...score,
+      finalPoints,
+      scored,
       manual: false,
       isNewRecord,
     }
@@ -151,13 +176,8 @@ export async function attemptChallengeFor(me: AuthCtx, challengeId: string, now 
     .from(challenges)
     .where(and(eq(challenges.id, challengeId), eq(challenges.tenantId, me.tenantId), isNull(challenges.archivedAt)))
   if (!c || (!isAdmin(me) && c.teamId !== me.teamId)) fail('Desafio não encontrado')
-  const [open] = await db
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(and(eq(tasks.challengeId, c.id), eq(tasks.assignedToId, me.userId), inArray(tasks.status, ['pending', 'in_progress', 'paused'])))
-    .limit(1)
-  if (open) return startTaskFor(me, open.id, now)
-  const [t] = await db
+  // O índice tasks_open_attempt_idx deixa passar uma tentativa aberta por pessoa; no clique duplo a segunda inserção vira no-op.
+  const [created] = await db
     .insert(tasks)
     .values({
       tenantId: c.tenantId,
@@ -170,14 +190,27 @@ export async function attemptChallengeFor(me: AuthCtx, challengeId: string, now 
       basePoints: c.basePoints,
       estimatedSeconds: c.estimatedSeconds,
     })
+    .onConflictDoNothing()
     .returning()
-  return startTaskFor(me, t!.id, now)
+  const attempt = created ?? (await findOpenAttempt(me.userId, c.id))
+  return startTaskFor(me, attempt.id, now)
+}
+
+async function findOpenAttempt(userId: string, challengeId: string) {
+  const [open] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.challengeId, challengeId), eq(tasks.assignedToId, userId), inArray(tasks.status, ['pending', 'in_progress', 'paused'])))
+    .limit(1)
+  if (!open) fail('Tentativa não encontrada, tente de novo')
+  return open
 }
 
 /** Conclusão manual (Kanban): pontos base, sem cronômetro. */
 export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = new Date()): Promise<FinishSummary> {
   return db.transaction(async (tx) => {
     const task = await loadTask(tx, me, taskId)
+    if (task.challengeId) fail('Tentativa de desafio não pode ser concluída manualmente')
     if (task.status !== 'pending' && task.status !== 'paused') fail('Só tarefas pendentes ou pausadas podem ser concluídas manualmente')
     if (task.assignedToId && task.assignedToId !== me.userId && !canManage(me, task)) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
@@ -214,6 +247,7 @@ export async function finishTaskManuallyFor(me: AuthCtx, taskId: string, now = n
       pausePenalty: 0,
       finalPoints: task.basePoints,
       needsValidation: false,
+      scored: true,
       manual: true,
       isNewRecord: false,
     }
@@ -265,7 +299,7 @@ export async function validatePointsFor(me: AuthCtx, taskId: string, approve: bo
     if (task.status !== 'finished' || !task.needsValidation) fail('Tarefa não aguarda validação')
     const [updated] = await tx
       .update(tasks)
-      .set({ needsValidation: false, awardedPoints: approve ? task.awardedPoints : 0 })
+      .set({ needsValidation: false, awardedPoints: approve ? task.awardedPoints : 0, rejectedAt: approve ? null : new Date() })
       .where(eq(tasks.id, taskId))
       .returning()
     await recordAudit(tx, me, {
@@ -402,6 +436,7 @@ export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
   await db.transaction(async (tx) => {
     const [task] = await tx.select().from(tasks).where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, me.tenantId)))
     if (!task || !canManage(me, task)) forbid()
+    if (task.challengeId) fail('Tentativa de desafio não pode ser editada')
     if (task.status === 'finished' || task.status === 'cancelled') fail('Tarefa encerrada não pode ser editada')
     if (data.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: task.teamId })
     if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')

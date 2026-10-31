@@ -11,7 +11,7 @@ import { canEditRecord, canSeeRecord, lostReasonFor, planMove } from '#/lib/oppo
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { can, fail, forbid, isAdmin, requireCan } from './roles'
-import { assertMember, inTeams } from './scope'
+import { assertMember, inTeams, inTenantTeams } from './scope'
 import { listStagesFor } from './stages.core'
 import type { Tx } from './tx'
 
@@ -188,17 +188,13 @@ export async function listPipelineFor(me: AuthCtx, filters: PipelineFilters = {}
 }
 
 export async function pipelineFiltersFor(me: AuthCtx, teamId?: string) {
-  const admin = isAdmin(me)
-  const scopedTeamId = admin ? teamId : (me.teamId ?? undefined)
   const [teamList, owners] = await Promise.all([
-    admin ? db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name)) : [],
-    scopedTeamId || admin
-      ? db
-          .select({ id: users.id, name: users.name })
-          .from(users)
-          .where(and(eq(users.tenantId, me.tenantId), scopedTeamId ? eq(users.teamId, scopedTeamId) : undefined))
-          .orderBy(asc(users.name))
-      : [],
+    isAdmin(me) ? db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name)) : [],
+    db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(inTenantTeams(users, me, { only: isAdmin(me) ? teamId : undefined }))
+      .orderBy(asc(users.name)),
   ])
   return { teams: teamList, owners }
 }

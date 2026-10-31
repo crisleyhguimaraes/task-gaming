@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { db } from '#/db'
 import { taskDependencies, tasks, teams, users } from '#/db/schema'
 import { authMiddleware } from './auth-context'
-import { canManage, canSee, fail, forbid, isAdmin } from './roles'
+import { canManage, canSee, fail, isAdmin } from './roles'
 import { activeMembersOf, inTeams } from './scope'
 import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
 import { capFor } from './time'
@@ -101,12 +101,11 @@ export const getTeam = createServerFn()
       ? await db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.tenantId, me.tenantId)).orderBy(asc(teams.name))
       : []
     const teamId = isAdmin(me) ? (data.teamId ?? null) : me.teamId
-    if (teamId && !isAdmin(me) && teamId !== me.teamId) forbid()
     return {
       teams: teamList,
       teamId,
       period: data.period,
-      ranking: await ranking(me.tenantId, teamId, data.period, timezone),
+      ranking: await ranking(me, data.period, timezone, teamId ?? undefined),
       feed: teamId ? await teamFeed(teamId) : null,
       canManage: canManage(me, { teamId: teamId ?? '' }),
     }

@@ -1,8 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
+import type { Role } from '#/db/schema'
 import { users } from '#/db/schema'
 import type { AuthCtx } from './roles'
-import { fail, isAdmin } from './roles'
+import { fail, forbid, isAdmin } from './roles'
 import type { Tx } from './tx'
 
 /** `'all'` é o tenant inteiro (admin); do contrário, só as equipes da lista. */
@@ -21,6 +22,13 @@ export function inTeams(column: PgColumn, me: AuthCtx, { only }: { only?: string
 /** Admin continua preso ao próprio tenant: nunca use `inTeams` sozinho numa tabela de vários tenants. */
 export function inTenantTeams(table: { tenantId: PgColumn; teamId: PgColumn }, me: AuthCtx, options?: { only?: string }) {
   return and(eq(table.tenantId, me.tenantId), inTeams(table.teamId, me, options))
+}
+
+/** Quem não é admin só age sobre membro comum de equipe própria. Sem equipe não há escopo: `null === null` não conta. */
+export function assertWithinScope(me: AuthCtx, target: { role: Role; teamId: string | null }) {
+  const ids = teamIdsOf(me)
+  if (ids === 'all') return
+  if (target.role !== 'MEMBER' || target.teamId === null || !ids.includes(target.teamId)) forbid()
 }
 
 /** Regra única de "responsável ativo": membro da equipe, do tenant, e não desativado. */

@@ -131,7 +131,7 @@ describe('tenants', () => {
 
 describe('desafios', () => {
   it('criar e arquivar deixam rastro', async () => {
-    const c = await createChallengeFor(f.leader, { title: 'Desafio', basePoints: 10, estimatedMinutes: 5, teamId: f.team.id })
+    const c = await createChallengeFor(f.leader, { title: 'Desafio', basePoints: 10, estimatedMinutes: 5, scoredAttemptsPerDay: 1, teamId: f.team.id })
 
     await archiveChallengeFor(f.leader, c.id)
 

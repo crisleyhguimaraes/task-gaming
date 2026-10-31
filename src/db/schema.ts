@@ -158,10 +158,14 @@ export const challenges = pgTable(
     description: text('description'),
     basePoints: integer('base_points').notNull().default(10),
     estimatedSeconds: integer('estimated_seconds').notNull(),
+    scoredAttemptsPerDay: integer('scored_attempts_per_day').notNull().default(1),
     archivedAt: ts('archived_at'),
     createdAt: ts('created_at').defaultNow().notNull(),
   },
-  (t) => [index('challenges_team_idx').on(t.teamId, t.archivedAt)],
+  (t) => [
+    index('challenges_team_idx').on(t.teamId, t.archivedAt),
+    check('challenges_scored_attempts_positive', sql`${t.scoredAttemptsPerDay} >= 1`),
+  ],
 )
 
 export const tasks = pgTable(
@@ -190,6 +194,7 @@ export const tasks = pgTable(
     scheduledEnd: date('scheduled_end'),
     startedAt: ts('started_at'),
     finishedAt: ts('finished_at'),
+    rejectedAt: ts('rejected_at'),
     movingSeconds: integer('moving_seconds'),
     elapsedSeconds: integer('elapsed_seconds'),
     awardedPoints: integer('awarded_points'),
@@ -203,6 +208,9 @@ export const tasks = pgTable(
     index('tasks_tenant_assigned_idx').on(t.tenantId, t.assignedToId),
     index('tasks_team_assigned_idx').on(t.teamId, t.assignedToId),
     index('tasks_challenge_idx').on(t.challengeId),
+    uniqueIndex('tasks_open_attempt_idx')
+      .on(t.challengeId, t.assignedToId)
+      .where(sql`${t.challengeId} is not null and ${t.status} in ('pending', 'in_progress', 'paused')`),
     index('tasks_opportunity_idx').on(t.opportunityId),
   ],
 )

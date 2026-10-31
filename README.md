@@ -60,7 +60,8 @@ Outras regras que moldam o jogo:
 - **Uma tarefa ativa por pessoa.** Iniciar outra pausa a anterior automaticamente.
 - **Pool da equipe.** Tarefas sem dono ficam no pool; puxar é atômico — se duas pessoas clicam ao mesmo tempo, só uma leva.
 - **Teto de abandono.** Um bloco esquecido aberto (browser fechado, almoço) trava em `max(2 × estimado, 30 min)`, e os intervalos entre blocos têm o mesmo teto. Esquecer de pausar não destrói sua pontuação.
-- **Desafio = tarefa repetível.** Cada tentativa é uma tarefa com `challenge_id`; o recorde é o menor tempo em movimento válido.
+- **Desafio = tarefa repetível.** Cada tentativa é uma tarefa com `challenge_id`; o recorde é o menor tempo em movimento válido (tentativa rejeitada pelo líder não conta, e o empate fica com quem concluiu primeiro). Só o executor pausa e conclui a própria tentativa.
+- **Tentativas pontuadas por dia.** Cada desafio define quantas tentativas válidas por pessoa e por dia (no fuso do tenant) rendem pontos, 1 por padrão; as seguintes valem para o tempo e o recorde, mas rendem 0 pontos. Os pontos base de um desafio vão até 1000.
 - **Dependências.** Grafo acíclico com detecção de ciclo; tarefa bloqueada não inicia.
 - **Sequência.** Dias consecutivos com conclusão válida no fuso do tenant; fim de semana sem tarefa não quebra.
 - **Níveis.** Iniciante 0 → Aprendiz 100 → Executor 300 → Veterano 600 → Especialista 1000 → Mestre 1500 → Lenda 2500 pontos.

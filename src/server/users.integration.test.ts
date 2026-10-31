@@ -250,6 +250,34 @@ describe('criar usuário e convidar com a capability delegada a quem não é lí
   })
 })
 
+describe('líder sem equipe', () => {
+  const password = 'senha-forte-123'
+  const delegated: AuthCtx['capabilityOverrides'] = { 'user.update': true, 'user.deactivate': true, 'user.create': true, 'invitation.manage': true }
+  const teamlessLeader = async (): Promise<AuthCtx> => ({ ...(await addUser(mine, { role: 'TEAM_LEADER', team: null })), capabilityOverrides: delegated })
+  const uniqueEmail = (label: string) => `${label}-${Math.random().toString(36).slice(2, 8)}@test.local`
+
+  it('não muda nem desativa usuário que também está sem equipe', async () => {
+    const leader = await teamlessLeader()
+    const teamless = await addUser(mine, { role: 'MEMBER', team: null })
+
+    await expect(updateUserCore(leader, { userId: teamless.userId, teamId: mine.team.id, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+    await expect(deactivateUserCore(leader, teamless.userId)).rejects.toThrow(ForbiddenError)
+
+    expect(await userRowOf(teamless.userId)).toMatchObject({ teamId: null, banned: false })
+  })
+
+  it('não cria usuário nem convida sem equipe', async () => {
+    const leader = await teamlessLeader()
+    const [userEmail, inviteEmail] = [uniqueEmail('sem-equipe'), uniqueEmail('convite-sem-equipe')]
+
+    await expect(createUserFor(leader, { name: 'X', email: userEmail, password, teamId: null, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+    await expect(createInvitationCore(leader, { email: inviteEmail, teamId: null, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
+
+    expect(await db.select().from(users).where(eq(users.email, userEmail))).toHaveLength(0)
+    expect(await db.select().from(invitations).where(eq(invitations.email, inviteEmail))).toHaveLength(0)
+  })
+})
+
 async function userRowOf(id: string) {
   return (await db.select().from(users).where(eq(users.id, id)))[0]!
 }

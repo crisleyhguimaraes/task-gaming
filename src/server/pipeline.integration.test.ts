@@ -2,11 +2,11 @@ import { and, asc, eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, leads, opportunities, opportunityStageChanges, pipelineStages, teams, users } from '#/db/schema'
-import { convertLeadFor, createOpportunityFor, funnelFor, getOpportunityFor, listPipelineFor, moveOpportunityFor, updateOpportunityFor } from './pipeline.core'
+import { convertLeadFor, createOpportunityFor, funnelFor, getOpportunityFor, listPipelineFor, moveOpportunityFor, pipelineFiltersFor, updateOpportunityFor } from './pipeline.core'
 import type { AuthCtx } from './roles'
 import { createStageFor, reorderStageFor } from './stages.core'
 import { createTaskFor } from './tasks.core'
-import { addAdmin, addUser, makeTenant } from './test-fixtures'
+import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
 
 type Fixture = Awaited<ReturnType<typeof makeTenant>>
 
@@ -604,5 +604,46 @@ describe('getOpportunityFor', () => {
 
     await expect(getOpportunityFor(outsider, opp.id)).rejects.toThrow('Oportunidade não encontrada')
     await expect(getOpportunityFor(otherAdmin, opp.id)).rejects.toThrow('Oportunidade não encontrada')
+  })
+})
+
+describe('pipelineFiltersFor', () => {
+  let t: Fixture
+  let tAdmin: AuthCtx
+  let tTeamB: { id: string }
+  let inB: AuthCtx
+
+  beforeAll(async () => {
+    t = await makeTenant(2)
+    tAdmin = await addAdmin(t)
+    tTeamB = await addTeam(t, 'B')
+    inB = await addUser(t, { role: 'MEMBER', team: tTeamB })
+  })
+  afterAll(() => t.cleanup())
+
+  const ids = (people: Array<AuthCtx>) => people.map((p) => p.userId).sort()
+  const ownerIds = async (me: AuthCtx, teamId?: string) => (await pipelineFiltersFor(me, teamId)).owners.map((o) => o.id).sort()
+
+  it('o admin oferece as equipes e os donos do tenant, filtráveis por equipe', async () => {
+    const filters = await pipelineFiltersFor(tAdmin)
+
+    expect(filters.teams.map((team) => team.id)).toEqual(expect.arrayContaining([t.team.id, tTeamB.id]))
+    expect(await ownerIds(tAdmin)).toEqual(ids([t.leader, ...t.members, tAdmin, inB]))
+    expect(await ownerIds(tAdmin, tTeamB.id)).toEqual(ids([inB]))
+  })
+
+  it('quem não é admin só vê os donos da própria equipe, sem lista de equipes e ignorando o filtro de equipe', async () => {
+    const member = t.members[0]!
+    const ownTeam = ids([t.leader, ...t.members, tAdmin])
+
+    expect((await pipelineFiltersFor(member)).teams).toEqual([])
+    expect(await ownerIds(member)).toEqual(ownTeam)
+    expect(await ownerIds(member, tTeamB.id)).toEqual(ownTeam)
+  })
+
+  it('quem não tem equipe não vê dono nenhum', async () => {
+    const teamless = await addUser(t, { role: 'MEMBER', team: null })
+
+    expect(await ownerIds(teamless)).toEqual([])
   })
 })

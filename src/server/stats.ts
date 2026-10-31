@@ -9,6 +9,7 @@ const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, 
 
 /** Dia local do tenant em SQL: (ts AT TIME ZONE tz)::date */
 export const localDay = (col: typeof tasks.finishedAt, tz: string) => sql`(${col} at time zone ${tz})::date`
+export const localDayOf = (instant: Date, tz: string) => sql`(${instant.toISOString()}::timestamptz at time zone ${tz})::date`
 export const todayLocal = (tz: string) => sql`(now() at time zone ${tz})::date`
 
 export type Period = 'day' | 'week' | 'all'
@@ -110,7 +111,7 @@ export async function streak(userId: string, tz: string) {
 
 // --- Ranking / feed ---------------------------------------------------------
 
-export async function ranking(tenantId: string, teamId: string | null, period: Period, tz: string) {
+export async function ranking(me: AuthCtx, period: Period, tz: string, teamId?: string) {
   return db
     .select({
       userId: users.id,
@@ -123,7 +124,7 @@ export async function ranking(tenantId: string, teamId: string | null, period: P
     .from(users)
     .leftJoin(teams, eq(teams.id, users.teamId))
     .leftJoin(tasks, and(eq(tasks.assignedToId, users.id), validPoints, periodFilter(period, tz)))
-    .where(and(eq(users.tenantId, tenantId), ne(users.role, 'SUPER_ADMIN'), teamId ? eq(users.teamId, teamId) : undefined))
+    .where(and(inTenantTeams(users, me, { only: teamId }), ne(users.role, 'SUPER_ADMIN')))
     .groupBy(users.id, users.name, teams.name)
     .orderBy(desc(sql`coalesce(sum(${tasks.awardedPoints}), 0)`), asc(users.name))
 }

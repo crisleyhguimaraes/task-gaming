@@ -7,18 +7,12 @@ import { diffFields } from '#/lib/audit'
 import { recordAudit } from './audit.core'
 import type { AuthCtx } from './roles'
 import { fail, forbid, isAdmin, requireCan } from './roles'
-import { inTenantTeams } from './scope'
+import { assertWithinScope, inTenantTeams } from './scope'
 import { assertTeamInTenant } from './teams.core'
 import { closeLogDuration } from './time'
 import type { Reader } from './tx'
 
 export type AssignableRole = Exclude<Role, 'SUPER_ADMIN'>
-
-/** Quem não é admin só gerencia membros comuns da própria equipe: capability delegada não pode virar escalada de privilégio. */
-function assertWithinScope(me: AuthCtx, target: Pick<typeof users.$inferSelect, 'role' | 'teamId'>) {
-  if (isAdmin(me)) return
-  if (target.role !== 'MEMBER' || target.teamId !== me.teamId) forbid()
-}
 
 async function findUserInScope(tx: Reader, me: AuthCtx, userId: string) {
   const [u] = await tx.select().from(users).where(and(eq(users.id, userId), eq(users.tenantId, me.tenantId), ne(users.role, 'SUPER_ADMIN')))
@@ -93,7 +87,7 @@ export async function reactivateUserCore(me: AuthCtx, userId: string) {
 }
 
 export async function createUserFor(me: AuthCtx, data: { name: string; email: string; password: string; teamId: string | null; role: AssignableRole }) {
-  if (!isAdmin(me) && (data.role !== 'MEMBER' || data.teamId !== me.teamId)) forbid()
+  assertWithinScope(me, data)
   await assertTeamInTenant(db, me.tenantId, data.teamId)
   const { user } = await auth.api.createUser({
     body: {

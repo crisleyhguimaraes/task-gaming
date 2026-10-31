@@ -13,6 +13,7 @@ export type CompletionSummary = {
   pausePenalty: number
   finalPoints: number
   needsValidation: boolean
+  scored: boolean
   totalPoints: number
   manual: boolean
   isNewRecord?: boolean
@@ -57,6 +58,7 @@ function Body({ s, onClose }: { s: CompletionSummary; onClose: () => void }) {
             <AlertCircle className="h-4 w-4 shrink-0" /> Conclusão ultrarrápida: aguardando validação do líder.
           </p>
         )}
+        {!s.scored && <p className="mt-2 text-xs text-neutral-500">Tentativa de treino: sem pontos hoje. O tempo conta para o recorde.</p>}
         {s.manual && <p className="mt-2 text-xs text-neutral-500">Concluída manualmente, sem cronômetro.</p>}
       </div>
 

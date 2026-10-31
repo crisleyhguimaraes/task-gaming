@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { tasks } from '#/db/schema'
-import { attentionCount } from './stats'
+import type { AuthCtx } from './roles'
+import { attentionCount, ranking } from './stats'
 import { addAdmin, addTeam, addUser, makeTenant } from './test-fixtures'
 
 let f: Awaited<ReturnType<typeof makeTenant>>
@@ -41,5 +42,27 @@ describe('attentionCount', () => {
     const teamlessLeader = await addUser(f, { role: 'TEAM_LEADER', team: null })
 
     expect(await attentionCount(teamlessLeader)).toEqual({ pool: 0, validation: 0 })
+  })
+})
+
+describe('ranking', () => {
+  const TZ = 'America/Sao_Paulo'
+  const userIds = async (me: AuthCtx, teamId?: string) => (await ranking(me, 'all', TZ, teamId)).map((r) => r.userId)
+
+  it('quem não tem equipe não enxerga o ranking do tenant', async () => {
+    const teamless = await addUser(f, { role: 'MEMBER', team: null })
+
+    expect(await userIds(teamless)).toEqual([])
+  })
+
+  it('membro vê só a própria equipe e admin vê o tenant, com ou sem filtro de equipe', async () => {
+    const teamB = await addTeam(f, 'B')
+    const inB = await addUser(f, { role: 'MEMBER', team: teamB })
+    const admin = await addUser(f, { role: 'TENANT_ADMIN', team: null })
+
+    expect(await userIds(f.members[0]!)).toEqual(expect.arrayContaining([f.leader.userId, f.members[0]!.userId]))
+    expect(await userIds(f.members[0]!)).not.toContain(inB.userId)
+    expect(await userIds(admin)).toContain(inB.userId)
+    expect(await userIds(admin, teamB.id)).toEqual([inB.userId])
   })
 })

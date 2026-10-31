@@ -64,6 +64,13 @@
       "when": 1793452220340,
       "tag": "0008_limpa_overrides_nao_delegaveis",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793453048737,
+      "tag": "0009_furos_de_justica_dos_desafios",
+      "breakpoints": true
     }
   ]
 }

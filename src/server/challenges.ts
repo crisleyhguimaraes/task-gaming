@@ -1,9 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, count, desc, eq, min, sql, sum } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { challenges, tasks, teams, users } from '#/db/schema'
-import { archiveChallengeFor, createChallengeFor, listChallengesFor, validAttempt } from './challenges.core'
+import { MAX_CHALLENGE_BASE_POINTS, MAX_SCORED_ATTEMPTS_PER_DAY } from '#/lib/challenge'
+import { archiveChallengeFor, challengeRanking, createChallengeFor, listChallengesFor } from './challenges.core'
 import { authMiddleware } from './auth-context'
 import { canManage, fail, isAdmin } from './roles'
 import { attemptChallengeFor } from './tasks.core'
@@ -18,8 +19,9 @@ export const createChallenge = createServerFn({ method: 'POST' })
     z.object({
       title: z.string().trim().min(2).max(200),
       description: z.string().trim().max(2000).optional(),
-      basePoints: z.number().int().min(1).max(10000),
+      basePoints: z.number().int().min(1).max(MAX_CHALLENGE_BASE_POINTS),
       estimatedMinutes: z.number().int().min(1).max(24 * 60),
+      scoredAttemptsPerDay: z.number().int().min(1).max(MAX_SCORED_ATTEMPTS_PER_DAY),
       teamId: z.uuid(),
     }),
   )
@@ -36,19 +38,7 @@ export const getChallenge = createServerFn()
       .leftJoin(users, eq(users.id, challenges.createdById))
       .where(and(eq(challenges.id, data.challengeId), eq(challenges.tenantId, me.tenantId)))
     if (!row || (!isAdmin(me) && row.challenge.teamId !== me.teamId)) fail('Desafio não encontrado')
-    const ranking = await db
-      .select({
-        userId: users.id,
-        name: users.name,
-        best: min(tasks.movingSeconds),
-        attempts: count(),
-        points: sum(tasks.awardedPoints).mapWith(Number),
-      })
-      .from(tasks)
-      .innerJoin(users, eq(users.id, tasks.assignedToId))
-      .where(and(eq(tasks.challengeId, row.challenge.id), validAttempt))
-      .groupBy(users.id, users.name)
-      .orderBy(asc(min(tasks.movingSeconds)))
+    const ranking = await challengeRanking(row.challenge.id)
     const [mine] = await db
       .select({ id: tasks.id, status: tasks.status })
       .from(tasks)
