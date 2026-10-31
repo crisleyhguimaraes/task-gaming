@@ -31,9 +31,12 @@ export function forbid(): never {
   throw new ForbiddenError()
 }
 
-const MANAGERS: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER']
-const ADMINS: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN']
-const EVERYONE: ReadonlyArray<Role> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'TEAM_LEADER', 'MEMBER']
+/** Quem recebe a capability: admin pelo papel de tenant, os demais pelo papel na equipe. */
+type Grantee = Role | TeamRole
+
+const MANAGERS: ReadonlyArray<Grantee> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'LEADER']
+const ADMINS: ReadonlyArray<Grantee> = ['SUPER_ADMIN', 'TENANT_ADMIN']
+const EVERYONE: ReadonlyArray<Grantee> = ['SUPER_ADMIN', 'TENANT_ADMIN', 'LEADER', 'MEMBER']
 
 /** Padrão de fábrica. Escopo (tenant/equipe) continua em canManage/canSee; isto só diz "quem pode tentar". */
 export const defaultGrants = {
@@ -55,7 +58,7 @@ export const defaultGrants = {
   'lead.import': MANAGERS,
   'opportunity.write': EVERYONE,
   'opportunity.reopen': MANAGERS,
-} satisfies Record<string, ReadonlyArray<Role>>
+} satisfies Record<string, ReadonlyArray<Grantee>>
 
 export type Capability = keyof typeof defaultGrants
 export const capabilities = Object.keys(defaultGrants) as Array<Capability>
@@ -91,13 +94,12 @@ export const capabilityScope: Record<Capability, CapabilityScope> = {
 
 export const nonDelegableCapabilities = capabilities.filter((c) => capabilityScope[c] === 'tenant')
 
-const granteeOf: Record<TeamRole, Role> = { LEADER: 'TEAM_LEADER', MEMBER: 'MEMBER' }
-const grantedTo = (capability: Capability): ReadonlyArray<Role> => defaultGrants[capability]
+const grantedTo = (capability: Capability): ReadonlyArray<Grantee> => defaultGrants[capability]
 
 /** O que o papel pode numa equipe: override do tenant sobre o padrão, e override de capability de escopo `tenant` nunca vale, mesmo gravado. */
 export function teamRoleCan(teamRole: TeamRole, capability: Capability, overrides: AuthCtx['capabilityOverrides']) {
   const override = capabilityScope[capability] === 'team' ? overrides[teamRole]?.[capability] : undefined
-  return override ?? grantedTo(capability).includes(granteeOf[teamRole])
+  return override ?? grantedTo(capability).includes(teamRole)
 }
 
 type CanCtx = Pick<AuthCtx, 'role' | 'memberships' | 'capabilityOverrides'>

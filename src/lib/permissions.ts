@@ -9,6 +9,5 @@ const none = ac.newRole({})
 export const roles = {
   SUPER_ADMIN: ac.newRole(adminAc.statements),
   TENANT_ADMIN: none,
-  TEAM_LEADER: none,
   MEMBER: none,
 }

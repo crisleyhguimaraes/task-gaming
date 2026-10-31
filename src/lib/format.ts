@@ -23,10 +23,11 @@ export function fmtDuration(secs: number) {
 export const roleLabel: Record<string, string> = {
   SUPER_ADMIN: 'Super admin',
   TENANT_ADMIN: 'Gestor geral',
-  TEAM_LEADER: 'Líder de equipe',
   MEMBER: 'Membro',
 }
 
-/** Admin mostra o papel de tenant; os demais, o que fazem nas equipes: o `users.role` legado de líder não conta sem vínculo de líder. */
+const leaderLabel = 'Líder de equipe'
+
+/** Admin mostra o papel de tenant; os demais, o que fazem nas equipes. */
 export const displayRole = (me: Pick<AuthCtx, 'role' | 'memberships'>) =>
-  isAdmin(me) ? roleLabel[me.role] : isManager(me) ? roleLabel.TEAM_LEADER : roleLabel.MEMBER
+  isAdmin(me) ? roleLabel[me.role] : isManager(me) ? leaderLabel : roleLabel.MEMBER

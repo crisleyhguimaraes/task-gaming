@@ -99,6 +99,13 @@
       "when": 1793459938369,
       "tag": "0013_convite_com_papel_de_equipe",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793460693109,
+      "tag": "0014_remove_equipe_unica_e_lider_de_tenant",
+      "breakpoints": true
     }
   ]
 }

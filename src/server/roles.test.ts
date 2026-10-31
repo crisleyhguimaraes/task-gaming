@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { teamRoles } from '#/lib/access'
 import type { Role, TeamRole } from '#/lib/access'
 import type { AuthCtx } from './roles'
 import { ForbiddenError, canAccessTeam, canManage, canSee, capabilities, capabilityScope, can, defaultGrants, defaultTeamId, forbid, isManager, isMemberOf, managedTeamIds, nonDelegableCapabilities, requireCan, roleIn } from './roles'
@@ -15,9 +16,11 @@ const person = (role: Role, memberships: Array<[string, TeamRole]> = [], capabil
   capabilityOverrides,
 })
 
-const hierarchy: Array<Role> = ['MEMBER', 'TEAM_LEADER', 'TENANT_ADMIN', 'SUPER_ADMIN']
-const as = (role: Role, capabilityOverrides: AuthCtx['capabilityOverrides'] = {}) =>
-  person(role, role === 'TEAM_LEADER' ? [[A, 'LEADER']] : role === 'MEMBER' ? [[A, 'MEMBER']] : [], capabilityOverrides)
+const hierarchy = ['MEMBER', 'LEADER', 'TENANT_ADMIN', 'SUPER_ADMIN'] as const
+type Level = (typeof hierarchy)[number]
+
+const as = (level: Level, capabilityOverrides: AuthCtx['capabilityOverrides'] = {}) =>
+  level === 'LEADER' || level === 'MEMBER' ? person('MEMBER', [[A, level]], capabilityOverrides) : person(level, [], capabilityOverrides)
 
 describe('capabilities', () => {
   it('quem pode uma capability forma o topo da hierarquia: cada papel superior herda o que o inferior pode', () => {
@@ -33,12 +36,12 @@ describe('capabilities', () => {
   })
 
   it('auditoria e gestão de equipes são de admin; líder gerencia usuários da equipe mas não altera papéis', () => {
-    expect(can(as('TEAM_LEADER'), 'audit.read')).toBe(false)
+    expect(can(as('LEADER'), 'audit.read')).toBe(false)
     expect(can(as('TENANT_ADMIN'), 'audit.read')).toBe(true)
-    expect(can(as('TEAM_LEADER'), 'team.manage')).toBe(false)
-    expect(can(as('TEAM_LEADER'), 'user.create')).toBe(true)
-    expect(can(as('TEAM_LEADER'), 'invitation.manage')).toBe(true)
-    expect(can(as('TEAM_LEADER'), 'user.update')).toBe(false)
+    expect(can(as('LEADER'), 'team.manage')).toBe(false)
+    expect(can(as('LEADER'), 'user.create')).toBe(true)
+    expect(can(as('LEADER'), 'invitation.manage')).toBe(true)
+    expect(can(as('LEADER'), 'user.update')).toBe(false)
   })
 
   it('membro comum não tem nenhuma capability de gestão', () => {
@@ -76,7 +79,7 @@ describe('team.member.manage', () => {
 describe('overrides por tenant', () => {
   it('sem override vale o padrão de fábrica', () => {
     expect(can(as('MEMBER'), 'export.csv')).toBe(false)
-    expect(can(as('TEAM_LEADER'), 'export.csv')).toBe(true)
+    expect(can(as('LEADER'), 'export.csv')).toBe(true)
   })
 
   it('override concede o que o padrão nega', () => {
@@ -84,7 +87,7 @@ describe('overrides por tenant', () => {
   })
 
   it('override revoga o que o padrão concede, e só a capability citada', () => {
-    const leader = as('TEAM_LEADER', { LEADER: { 'user.create': false } })
+    const leader = as('LEADER', { LEADER: { 'user.create': false } })
 
     expect(can(leader, 'user.create')).toBe(false)
     expect(can(leader, 'invitation.manage')).toBe(true)
@@ -93,10 +96,9 @@ describe('overrides por tenant', () => {
 
 describe('capabilities não delegáveis', () => {
   it.each(nonDelegableCapabilities)('override de %s é ignorado, mesmo gravado: vale só o padrão de fábrica', (capability) => {
-    for (const role of ['TEAM_LEADER', 'MEMBER'] as const) {
-      const teamRole = role === 'TEAM_LEADER' ? 'LEADER' : 'MEMBER'
-      expect(can(as(role, { [teamRole]: { [capability]: true } }), capability)).toBe(can(as(role), capability))
-      expect(can(as(role, { [teamRole]: { [capability]: false } }), capability)).toBe(can(as(role), capability))
+    for (const teamRole of teamRoles) {
+      expect(can(as(teamRole, { [teamRole]: { [capability]: true } }), capability)).toBe(can(as(teamRole), capability))
+      expect(can(as(teamRole, { [teamRole]: { [capability]: false } }), capability)).toBe(can(as(teamRole), capability))
     }
   })
 
@@ -238,9 +240,5 @@ describe('predicados sobre vínculos', () => {
     expect(isManager(me)).toBe(true)
     expect(isManager(person('MEMBER', [[A, 'MEMBER']]))).toBe(false)
     expect(isManager(teamless)).toBe(false)
-  })
-
-  it('líder sem vínculo não é gestor, mesmo com o papel legado em users.role', () => {
-    expect(isManager(person('TEAM_LEADER'))).toBe(false)
   })
 })

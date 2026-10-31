@@ -49,7 +49,6 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       tenantId: { type: 'string', required: true, input: false },
-      teamId: { type: 'string', required: false, input: false },
       mustChangePassword: { type: 'boolean', required: false, input: false },
     },
   },

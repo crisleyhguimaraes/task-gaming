@@ -273,7 +273,7 @@ describe('criar usuário e convidar com a capability delegada a quem não é lí
   it('membro cria membro da própria equipe', async () => {
     const user = await createUserFor(member(), { name: 'Colega', email: uniqueEmail('colega'), password, teamId: mine.team.id, role: 'MEMBER' })
 
-    expect(await userRowOf(user.id)).toMatchObject({ role: 'MEMBER', teamId: null })
+    expect(await userRowOf(user.id)).toMatchObject({ role: 'MEMBER' })
     expect(await db.select({ teamId: teamMembers.teamId, role: teamMembers.role }).from(teamMembers).where(eq(teamMembers.userId, user.id))).toEqual([{ teamId: mine.team.id, role: 'MEMBER' }])
   })
 
@@ -316,7 +316,7 @@ describe('líder sem equipe', () => {
     await expect(updateUserCore(leader, { userId: teamless.userId, role: 'MEMBER' })).rejects.toThrow(ForbiddenError)
     await expect(deactivateUserCore(leader, teamless.userId)).rejects.toThrow(ForbiddenError)
 
-    expect(await userRowOf(teamless.userId)).toMatchObject({ teamId: null, banned: false })
+    expect(await userRowOf(teamless.userId)).toMatchObject({ banned: false })
   })
 
   it('não cria usuário nem convida sem equipe', async () => {

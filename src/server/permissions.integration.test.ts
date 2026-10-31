@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { TransactionRollbackError, and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { db } from '#/db'
 import { auditEvents, roleCapabilities } from '#/db/schema'
@@ -168,41 +168,6 @@ describe('migração que limpa overrides não delegáveis', () => {
       await db.execute(sql.raw(migration))
 
       expect(await overridesOf(g.tenant.id, 'LEADER')).toEqual({ 'export.csv': true })
-    } finally {
-      await g.cleanup()
-    }
-  })
-})
-
-describe('migração que passa os overrides para o papel de equipe', () => {
-  it('converte TEAM_LEADER em LEADER, preserva MEMBER e descarta linha de admin', async () => {
-    const g = await makeTenant(0)
-    const migration = readFileSync(new URL('../../drizzle/0012_papel_de_equipe_nos_overrides.sql', import.meta.url), 'utf8')
-    const rowsOf = (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) =>
-      tx.select({ role: roleCapabilities.role, capability: roleCapabilities.capability, allowed: roleCapabilities.allowed }).from(roleCapabilities).where(eq(roleCapabilities.tenantId, g.tenant.id)).orderBy(asc(roleCapabilities.capability))
-    let migrated: Awaited<ReturnType<typeof rowsOf>> = []
-    try {
-      // DDL é transacional: volta a coluna ao tipo antigo, roda a migração e desfaz tudo no fim.
-      await expect(
-        db.transaction(async (tx) => {
-          await tx.execute(sql`ALTER TABLE role_capabilities ALTER COLUMN role TYPE role USING (CASE role::text WHEN 'LEADER' THEN 'TEAM_LEADER' ELSE role::text END)::role`)
-          await tx.execute(sql`
-            INSERT INTO role_capabilities (tenant_id, role, capability, allowed) VALUES
-              (${g.tenant.id}, 'TEAM_LEADER', 'export.csv', true),
-              (${g.tenant.id}, 'MEMBER', 'lead.import', true),
-              (${g.tenant.id}, 'TENANT_ADMIN', 'user.read', false)`)
-
-          await tx.execute(sql.raw(migration))
-
-          migrated = await rowsOf(tx)
-          tx.rollback()
-        }),
-      ).rejects.toThrow(TransactionRollbackError)
-
-      expect(migrated).toEqual([
-        { role: 'LEADER', capability: 'export.csv', allowed: true },
-        { role: 'MEMBER', capability: 'lead.import', allowed: true },
-      ])
     } finally {
       await g.cleanup()
     }

@@ -95,14 +95,10 @@ export async function validInvitation(token: string) {
   return { status: 'valid' as const, ...row }
 }
 
-// Convites gravados antes da migração 0013 carregam o papel de líder em `role`.
-const rolesOf = ({ role, teamRole }: typeof invitations.$inferSelect) =>
-  role === 'TEAM_LEADER' ? ({ role: 'MEMBER', teamRole: 'LEADER' } as const) : ({ role, teamRole } as const)
-
 export async function acceptInvitationCore(token: string, name: string, password: string) {
   const r = await validInvitation(token)
   if (r.status !== 'valid') throw new Error('Convite inválido ou expirado')
-  const { role, teamRole } = rolesOf(r.inv)
+  const { role, teamRole } = r.inv
   const { user } = await auth.api.createUser({
     body: { name, email: r.inv.email, password, role, data: { tenantId: r.inv.tenantId, mustChangePassword: false } },
   })

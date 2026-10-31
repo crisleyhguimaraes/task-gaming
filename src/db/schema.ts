@@ -74,11 +74,10 @@ export const users = pgTable(
     tenantId: uuid('tenant_id')
       .references(() => tenants.id, { onDelete: 'cascade' })
       .notNull(),
-    teamId: uuid('team_id').references(() => teams.id, { onDelete: 'set null' }),
     mustChangePassword: boolean('must_change_password').notNull().default(false),
     twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
   },
-  (t) => [index('users_tenant_team_idx').on(t.tenantId, t.teamId), unique('users_id_tenant_unique').on(t.id, t.tenantId)],
+  (t) => [unique('users_id_tenant_unique').on(t.id, t.tenantId)],
 )
 
 // As FKs compostas tornam impossível, no banco, alguém de outro tenant numa equipe.

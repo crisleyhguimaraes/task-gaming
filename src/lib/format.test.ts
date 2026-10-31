@@ -14,11 +14,6 @@ describe('displayRole', () => {
     expect(displayRole(person('MEMBER', [['a', 'MEMBER'], ['b', 'LEADER']]))).toBe('Líder de equipe')
   })
 
-  it('o papel legado de líder sem vínculo de líder não conta', () => {
-    expect(displayRole(person('TEAM_LEADER', [['a', 'MEMBER']]))).toBe('Membro')
-    expect(displayRole(person('TEAM_LEADER'))).toBe('Membro')
-  })
-
   it('quem só integra equipes, ou nenhuma, é membro', () => {
     expect(displayRole(person('MEMBER', [['a', 'MEMBER']]))).toBe('Membro')
     expect(displayRole(person('MEMBER'))).toBe('Membro')

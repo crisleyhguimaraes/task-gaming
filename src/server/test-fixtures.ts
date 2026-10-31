@@ -8,7 +8,7 @@ import { insertDefaultStages } from './stages.core'
 import type { AuthCtx } from './roles'
 
 type Team = { id: string }
-type TenantRole = Exclude<AuthCtx['role'], 'TEAM_LEADER'>
+type TenantRole = AuthCtx['role']
 
 async function linkToTeam(tenantId: string, team: Team | null, role: TenantRole, userId: string, teamRole: TeamRole) {
   if (!team || role === 'SUPER_ADMIN') return

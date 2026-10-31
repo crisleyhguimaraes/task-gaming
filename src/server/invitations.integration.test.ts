@@ -25,7 +25,7 @@ describe('convites', () => {
     expect((await validInvitation(inv!.token)).status).toBe('valid')
     await acceptInvitationCore(inv!.token, 'Nova Pessoa', 'senha-forte-123')
     const [u] = await db.select().from(users).where(eq(users.email, email))
-    expect(u).toMatchObject({ tenantId: f.tenant.id, teamId: null, role: 'MEMBER', mustChangePassword: false })
+    expect(u).toMatchObject({ tenantId: f.tenant.id, role: 'MEMBER', mustChangePassword: false })
     expect(await db.select({ teamId: teamMembers.teamId, role: teamMembers.role }).from(teamMembers).where(eq(teamMembers.userId, u!.id))).toEqual([{ teamId: f.team.id, role: 'MEMBER' }])
     expect((await validInvitation(inv!.token)).status).toBe('accepted')
     await expect(acceptInvitationCore(inv!.token, 'X', 'senha-forte-123')).rejects.toThrow(/inválido/)

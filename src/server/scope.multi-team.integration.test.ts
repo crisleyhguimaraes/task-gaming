@@ -140,12 +140,11 @@ describe('membros ativos lidos de team_members', () => {
     expect(await activeIn([teamB.id])).toContain(twoTeamsUserId())
   })
 
-  it('o vínculo em team_members é a fonte: users.team_id sozinho não faz ninguém membro', async () => {
-    const legacyOnly = await addUser(f, { role: 'MEMBER', team: null })
-    await db.update(users).set({ teamId: teamC.id }).where(eq(users.id, legacyOnly.userId))
+  it('sem vínculo em team_members ninguém é membro', async () => {
+    const unlinked = await addUser(f, { role: 'MEMBER', team: null })
 
-    await expect(asMember(legacyOnly.userId, teamC.id)).rejects.toThrow('Responsável não pertence à equipe')
-    expect(await activeIn([teamC.id])).not.toContain(legacyOnly.userId)
+    await expect(asMember(unlinked.userId, teamC.id)).rejects.toThrow('Responsável não pertence à equipe')
+    expect(await activeIn([teamC.id])).not.toContain(unlinked.userId)
   })
 
   it('desativado deixa de ser responsável mesmo com vínculo', async () => {
