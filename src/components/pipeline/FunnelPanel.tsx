@@ -29,7 +29,7 @@ function ConversionBars({ steps }: { steps: Funnel['conversion'] }) {
   const widest = Math.max(1, ...steps.map((s) => s.reached))
   const height = steps.length * ROW_H
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} className="w-full" role="img" aria-label="Oportunidades que alcançaram cada etapa aberta" onMouseLeave={() => setHover(null)}>
+    <svg viewBox={`0 0 ${W} ${height}`} className="w-full max-w-[720px]" role="img" aria-label="Oportunidades que alcançaram cada etapa aberta" onMouseLeave={() => setHover(null)}>
       {steps.map((step, i) => {
         const y = i * ROW_H
         const width = Math.max(2, (step.reached / widest) * BAR_MAX_W)
@@ -38,7 +38,7 @@ function ConversionBars({ steps }: { steps: Funnel['conversion'] }) {
             <title>{`${step.name}: ${step.reached} oportunidades${step.rateFromPrevious === null ? '' : ` (${formatRate(step.rateFromPrevious)} da etapa anterior)`}`}</title>
             <rect x={0} y={y} width={W} height={ROW_H} fill={hover === i ? 'var(--color-neutral-800)' : 'transparent'} opacity={0.5} rx={6} />
             <text x={8} y={y + ROW_H / 2 + 4} fontSize="12" fill="var(--color-neutral-300)">{step.name}</text>
-            <rect x={LABEL_W} y={y + (ROW_H - BAR_H) / 2} width={width} height={BAR_H} rx={4} fill="var(--color-xp-600)" />
+            <rect x={LABEL_W} y={y + (ROW_H - BAR_H) / 2} width={width} height={BAR_H} rx={4} fill="var(--color-brand-ring)" />
             <text x={W - 8} y={y + ROW_H / 2 + 4} textAnchor="end" fontSize="12" fill="var(--color-neutral-300)">
               {step.reached}
               <tspan fill="var(--color-neutral-500)">{step.rateFromPrevious === null ? '' : ` · ${formatRate(step.rateFromPrevious)}`}</tspan>

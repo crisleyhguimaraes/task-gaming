@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Role, TeamRole } from '#/lib/access'
-import { displayRole, plural } from './format'
+import { displayRole, formatIsoDate, plural } from './format'
 
 const person = (role: Role, memberships: Array<[string, TeamRole]> = []) => ({ role, memberships: memberships.map(([teamId, teamRole]) => ({ teamId, role: teamRole })) })
 
@@ -28,5 +28,11 @@ describe('plural', () => {
   it('zero e mais de um usam o plural', () => {
     expect(plural(0, 'tarefa', 'tarefas')).toBe('0 tarefas')
     expect(plural(2, 'tarefa', 'tarefas')).toBe('2 tarefas')
+  })
+})
+
+describe('formatIsoDate', () => {
+  it('troca AAAA-MM-DD por DD/MM/AAAA', () => {
+    expect(formatIsoDate('2026-11-04')).toBe('04/11/2026')
   })
 })

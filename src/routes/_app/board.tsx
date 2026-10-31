@@ -12,6 +12,7 @@ import { PageHeader } from '#/components/PageHeader'
 import { SearchField } from '#/components/SearchField'
 import { Timeline } from '#/components/Timeline'
 import { TopbarSlot } from '#/components/Topbar'
+import { ViewSwitcher } from '#/components/ViewSwitcher'
 import { fmtClock } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
 import { NO_BOARD } from '#/lib/boards'
@@ -20,6 +21,12 @@ import { listBoards } from '#/server/boards'
 import { exportTasksCsv } from '#/server/exports'
 import { can, isManager } from '#/server/roles'
 import { finishTask, finishTaskManually, listTasks, moveTask, pauseTask, returnToPool, startTask, taskFilterSchema } from '#/server/tasks'
+
+const VIEWS = [
+  { id: 'kanban', label: 'Kanban', icon: Columns3 },
+  { id: 'list', label: 'Lista', icon: List },
+  { id: 'timeline', label: 'Linha do tempo', icon: GanttChart },
+] as const
 
 export const Route = createFileRoute('/_app/board')({
   staticData: { pageWidth: 'full' },
@@ -109,13 +116,7 @@ function Board() {
         </form>
       </TopbarSlot>
       <PageHeader title="Board">
-        <div className="flex gap-0.5 rounded-xl border border-neutral-800 bg-neutral-900 p-0.5">
-          {([['kanban', Columns3], ['list', List], ['timeline', GanttChart]] as const).map(([v, Icon]) => (
-            <button key={v} onClick={() => set({ view: v })} title={v} className={`rounded-lg p-1.5 ${search.view === v ? 'bg-brand-soft text-brand-ink' : 'text-neutral-500 hover:text-neutral-50'}`}>
-              <Icon className="h-4 w-4" />
-            </button>
-          ))}
-        </div>
+        <ViewSwitcher label="Visualização" value={search.view} options={VIEWS} onChange={(view) => set({ view })} />
         {can(me, 'export.csv', search.teamId) && (
           <button onClick={exportCsv} className="btn-ghost px-3 py-2 text-xs"><Download className="h-4 w-4" /> CSV</button>
         )}
@@ -181,12 +182,12 @@ function ListView({ tasks, sort, onSort }: { tasks: Array<BoardTask>; sort: NonN
   })
   const Th = ({ k, children }: { k: typeof sort; children: React.ReactNode }) => (
     <th className="px-3 py-2 text-left text-xs font-semibold text-neutral-400">
-      <button onClick={() => onSort(k)} className={`hover:text-neutral-50 ${sort === k ? 'text-xp-400' : ''}`}>{children}</button>
+      <button onClick={() => onSort(k)} className={`hover:text-neutral-50 ${sort === k ? 'text-brand-ink' : ''}`}>{children}</button>
     </th>
   )
   return (
-    <div className="overflow-x-auto rounded-2xl border border-neutral-800">
-      <table className="w-full text-sm">
+    <div className="card overflow-x-auto p-0">
+      <table className="w-full min-w-[820px] text-sm">
         <thead className="border-b border-neutral-800 bg-neutral-950/60">
           <tr>
             <Th k="title">Tarefa</Th><Th k="status">Status</Th><Th k="priority">Prioridade</Th>
@@ -196,9 +197,9 @@ function ListView({ tasks, sort, onSort }: { tasks: Array<BoardTask>; sort: NonN
             <th />
           </tr>
         </thead>
-        <tbody className="divide-y divide-neutral-800/80">
+        <tbody className="divide-y divide-neutral-800">
           {sorted.map((t) => (
-            <tr key={t.id} className="hover:bg-neutral-900/60">
+            <tr key={t.id} className="hover:bg-neutral-950/50">
               <td className="px-3 py-2"><Link to="/tasks/$taskId" params={{ taskId: t.id }} className="font-medium hover:underline">{t.title}</Link></td>
               <td className="px-3 py-2 text-neutral-400">{STATUS_LABEL[t.status]}</td>
               <td className="px-3 py-2 text-neutral-400">{PRIORITY_LABEL[t.priority]}</td>

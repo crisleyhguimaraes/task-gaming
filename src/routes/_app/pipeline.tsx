@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
-import { CalendarRange, Funnel, User, UsersRound } from 'lucide-react'
+import { CalendarRange, Columns3, Funnel, List, User, UsersRound } from 'lucide-react'
 import * as React from 'react'
 import { z } from 'zod'
 import { FilterSelect } from '#/components/FilterSelect'
@@ -8,9 +8,11 @@ import { PipelineBoard } from '#/components/pipeline/Board'
 import type { MovePayload } from '#/components/pipeline/Board'
 import { FunnelPanel } from '#/components/pipeline/FunnelPanel'
 import { LostReasonModal } from '#/components/pipeline/LostReasonModal'
+import { PipelineList } from '#/components/pipeline/List'
 import { PipelineKpis } from '#/components/pipeline/PipelineKpis'
 import { SearchField } from '#/components/SearchField'
 import { TopbarSlot } from '#/components/Topbar'
+import { ViewSwitcher } from '#/components/ViewSwitcher'
 import { matchesDeal } from '#/lib/deal-search'
 import { getFunnel, getPipelineFilters, listPipeline, moveOpportunity } from '#/server/pipeline'
 import { listPipelines } from '#/server/pipelines'
@@ -18,12 +20,17 @@ import { listPipelines } from '#/server/pipelines'
 const DAY_MS = 86_400_000
 const DEFAULT_PERIOD_DAYS = 90
 const PERIOD_OPTIONS = [30, 90, 365]
+const VIEWS = [
+  { id: 'kanban', label: 'Kanban', icon: Columns3 },
+  { id: 'list', label: 'Lista', icon: List },
+] as const
 
 const pipelineSearch = z.object({
   pipelineId: z.uuid().optional(),
   teamId: z.uuid().optional(),
   ownerId: z.string().optional(),
   periodDays: z.number().int().min(1).max(730).default(DEFAULT_PERIOD_DAYS),
+  view: z.enum(['kanban', 'list']).default('kanban'),
 })
 
 export const Route = createFileRoute('/_app/pipeline')({
@@ -96,7 +103,14 @@ function Pipeline({ pipelines, pipelineId, columns, filters, funnel }: PipelineD
       <TopbarSlot>
         <SearchField value={query} onChange={setQuery} placeholder="Buscar negócio ou lead…" />
       </TopbarSlot>
-      <PageHeader title="Pipeline" subtitle={pipelines.find((p) => p.id === pipelineId)?.name} />
+      <PageHeader title="Pipeline" subtitle={pipelines.find((p) => p.id === pipelineId)?.name}>
+        <ViewSwitcher
+          label="Visualização"
+          value={search.view}
+          options={VIEWS}
+          onChange={(view) => set({ view })}
+        />
+      </PageHeader>
       <PipelineKpis columns={columns} funnel={funnel} periodDays={search.periodDays} />
       <div className="flex flex-wrap items-center gap-2">
         {pipelines.length > 1 && (
@@ -139,7 +153,7 @@ function Pipeline({ pipelines, pipelineId, columns, filters, funnel }: PipelineD
             className="btn-ghost px-3 py-2 text-xs"
             onClick={() => {
               setQuery('')
-              navigate({ search: { periodDays: search.periodDays } })
+              navigate({ search: { periodDays: search.periodDays, view: search.view } })
             }}
           >
             Limpar filtros
@@ -148,7 +162,7 @@ function Pipeline({ pipelines, pipelineId, columns, filters, funnel }: PipelineD
       </div>
       {error && <p className="rounded-xl border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
 
-      <PipelineBoard columns={visible} onMove={onMove} />
+      {search.view === 'kanban' ? <PipelineBoard columns={visible} onMove={onMove} /> : <PipelineList columns={visible} />}
       <FunnelPanel funnel={funnel} periodDays={search.periodDays} />
 
       <LostReasonModal

@@ -3,24 +3,15 @@ import { CSS } from '@dnd-kit/utilities'
 import { Link } from '@tanstack/react-router'
 import { CalendarDays } from 'lucide-react'
 import type { StageKind } from '#/db/schema'
-import { DEAL_STATUS_LABEL, dealStatus, localToday } from '#/lib/deal-status'
-import type { DealStatus } from '#/lib/deal-status'
+import { formatIsoDate } from '#/lib/format'
 import { formatCents } from '#/lib/pipeline'
 import { Avatar } from '../Avatar'
 import type { OpportunityCardData } from './Board'
-
-const STATUS_CLS: Record<DealStatus, string> = {
-  overdue: 'border-rose-900/50 bg-rose-950/40 text-rose-400',
-  soon: 'border-amber-800/50 bg-amber-950/40 text-amber-300',
-  on_track: 'border-brand-ring/30 bg-brand-soft text-brand-ink',
-}
-
-const formatDate = (iso: string) => `${iso.slice(8)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+import { DealStatusBadge } from './DealStatusBadge'
 
 export function OpportunityCard({ card, stageKind, overlay = false }: { card: OpportunityCardData; stageKind: StageKind; overlay?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: card.id, disabled: !card.canWrite })
   const style: React.CSSProperties = { transform: CSS.Translate.toString(transform), transition, opacity: isDragging && !overlay ? 0.3 : 1 }
-  const status = dealStatus(card.expectedCloseDate, stageKind, localToday())
   return (
     <div
       ref={setNodeRef}
@@ -37,7 +28,7 @@ export function OpportunityCard({ card, stageKind, overlay = false }: { card: Op
         <span className="font-semibold text-neutral-50">{formatCents(card.amountCents)}</span>
         {card.expectedCloseDate && (
           <span className="flex items-center gap-1 text-neutral-400">
-            <CalendarDays className="h-3.5 w-3.5" /> {formatDate(card.expectedCloseDate)}
+            <CalendarDays className="h-3.5 w-3.5" /> {formatIsoDate(card.expectedCloseDate)}
           </span>
         )}
       </div>
@@ -50,7 +41,7 @@ export function OpportunityCard({ card, stageKind, overlay = false }: { card: Op
         ) : (
           <span className="text-xs text-neutral-500 italic">Sem dono</span>
         )}
-        {status && <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_CLS[status]}`}>{DEAL_STATUS_LABEL[status]}</span>}
+        <DealStatusBadge expectedCloseDate={card.expectedCloseDate} stageKind={stageKind} />
       </div>
     </div>
   )

@@ -33,3 +33,5 @@ const leaderLabel = 'Líder de equipe'
 /** Admin mostra o papel de tenant; os demais, o que fazem nas equipes. */
 export const displayRole = (me: Pick<AuthCtx, 'role' | 'memberships'>) =>
   isAdmin(me) ? roleLabel[me.role] : isManager(me) ? leaderLabel : roleLabel.MEMBER
+
+export const formatIsoDate = (iso: string) => `${iso.slice(8)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
