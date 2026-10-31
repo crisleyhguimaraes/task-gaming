@@ -34,6 +34,12 @@ export const FACTORY_RULES: ScoringRules = {
   capMinMinutes: 30,
 }
 
+/** Os parâmetros efetivos gravados na tarefa no primeiro start, com a regra de origem só para exibir. */
+export type ScoringSnapshot = ScoringRules & { ruleId: string; ruleName: string }
+
+/** Sem snapshot (tarefa anterior às regras) vale a regra de fábrica, que era a única. */
+export const effectiveRules = (snapshot: ScoringSnapshot | null): ScoringRules => snapshot ?? FACTORY_RULES
+
 // NOTE: pct/100 em ponto flutuante reproduz a fórmula original bit a bit, inclusive o ruído nos degraus de 170%, 190%…; inteiro exato mudaria uns pontos ali.
 const fraction = (pct: number) => pct / 100
 

@@ -127,6 +127,13 @@
       "when": 1793461443511,
       "tag": "0017_boards_e_vinculo_com_equipes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793463028214,
+      "tag": "0018_metas_e_pontuacoes_por_equipe",
+      "breakpoints": true
     }
   ]
 }

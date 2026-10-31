@@ -10,7 +10,9 @@ import { PRIORITY_LABEL } from '#/components/kanban/Card'
 import { Timeline } from '#/components/Timeline'
 import { fmtClock } from '#/lib/format'
 import { appRoute } from '#/lib/app-route'
+import { NO_BOARD } from '#/lib/boards'
 import { downloadCsv } from '#/lib/download-csv'
+import { listBoards } from '#/server/boards'
 import { exportTasksCsv } from '#/server/exports'
 import { can, isManager } from '#/server/roles'
 import { finishTask, finishTaskManually, listTasks, moveTask, pauseTask, returnToPool, startTask, taskFilterSchema } from '#/server/tasks'
@@ -18,7 +20,10 @@ import { finishTask, finishTaskManually, listTasks, moveTask, pauseTask, returnT
 export const Route = createFileRoute('/_app/board')({
   validateSearch: taskFilterSchema,
   loaderDeps: ({ search }) => search,
-  loader: ({ deps }) => listTasks({ data: deps }),
+  loader: async ({ deps }) => {
+    const [data, boards] = await Promise.all([listTasks({ data: deps }), listBoards()])
+    return { ...data, boards }
+  },
   component: Board,
 })
 
@@ -30,7 +35,7 @@ const STATUS_RANK = { in_progress: 0, paused: 1, pending: 2, finished: 3, cancel
 
 function Board() {
   const { me } = appRoute.useRouteContext()
-  const { tasks, teams, members, edges } = Route.useLoaderData()
+  const { tasks, teams, members, edges, boards } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/board' })
   const router = useRouter()
@@ -112,6 +117,13 @@ function Board() {
           <Search className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-neutral-500" />
           <input name="q" defaultValue={search.search ?? ''} placeholder="Buscar…" className="pl-9" />
         </form>
+        {boards.length > 0 && (
+          <select value={search.boardId ?? ''} onChange={(e) => set({ boardId: e.target.value || undefined })} className="w-auto" aria-label="Board">
+            <option value="">Todos os boards</option>
+            <option value={NO_BOARD}>Sem board</option>
+            {boards.map((b) => <option key={b.id} value={b.id}>{b.archivedAt ? `${b.name} (arquivado)` : b.name}</option>)}
+          </select>
+        )}
         {teams.length > 0 && (
           <select value={search.teamId ?? ''} onChange={(e) => set({ teamId: e.target.value || undefined, assigneeId: undefined })} className="w-auto">
             <option value="">Todas as equipes</option>

@@ -1,6 +1,6 @@
 import { Link, useRouter, useRouterState } from '@tanstack/react-router'
 import * as React from 'react'
-import { Building2, ChevronDown, ClipboardList, Columns3, ContactRound, Flame, Funnel, Handshake, LogOut, Moon, ScrollText, Settings, ShieldCheck, SlidersHorizontal, Sun, SunMedium, Trophy, UserCircle, UserCog, Users, UsersRound } from 'lucide-react'
+import { Building2, ChevronDown, ClipboardList, Columns3, ContactRound, Flame, Funnel, Handshake, LayoutGrid, LogOut, Moon, ScrollText, Settings, ShieldCheck, SlidersHorizontal, Sun, SunMedium, Trophy, UserCircle, UserCog, Users, UsersRound } from 'lucide-react'
 import { authClient } from '#/lib/auth-client'
 import { appRoute } from '#/lib/app-route'
 import { displayRole, fmtClock } from '#/lib/format'
@@ -32,13 +32,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
     router.navigate({ to: '/admin/tenants' })
   }
 
-  type Path = '/' | '/challenges' | '/board' | '/team' | '/pipeline' | '/leads' | '/settings/teams' | '/settings/users' | '/settings/permissions' | '/settings/pipeline' | '/settings/tenant' | '/settings/audit' | '/admin/tenants'
+  type Path = '/' | '/challenges' | '/board' | '/team' | '/pipeline' | '/leads' | '/settings/teams' | '/settings/users' | '/settings/permissions' | '/settings/pipeline' | '/settings/boards' | '/settings/tenant' | '/settings/audit' | '/admin/tenants'
   type Item = { to: Path; label: string; icon: typeof Sun; show: boolean; children?: Array<Item> }
   const settings: Array<Item> = [
     { to: '/settings/teams', label: 'Equipes', icon: UsersRound, show: can(me, 'team.manage') },
     { to: '/settings/users', label: 'Usuários', icon: UserCog, show: can(me, 'user.read') },
     { to: '/settings/permissions', label: 'Permissões', icon: ShieldCheck, show: can(me, 'permissions.manage') },
-    { to: '/settings/pipeline', label: 'Funil de vendas', icon: Funnel, show: can(me, 'pipeline.configure') },
+    { to: '/settings/pipeline', label: 'Pipelines', icon: Funnel, show: can(me, 'pipeline.configure') },
+    { to: '/settings/boards', label: 'Boards', icon: LayoutGrid, show: can(me, 'board.manage') },
     { to: '/settings/tenant', label: 'Organização', icon: SlidersHorizontal, show: can(me, 'tenant.configure') },
     { to: '/settings/audit', label: 'Auditoria', icon: ScrollText, show: can(me, 'audit.read') },
   ]

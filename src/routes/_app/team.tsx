@@ -63,6 +63,7 @@ function Team() {
           {data.teams.map((t) => (
             <Link key={t.id} to="/team" search={{ period, teamId: t.id }} className={`rounded-lg px-3 py-1 text-xs ${teamId === t.id ? 'bg-neutral-800 text-neutral-50' : 'text-neutral-400'}`}>{t.name}</Link>
           ))}
+          {teamId && <Link to="/teams/$teamId" params={{ teamId }} className="rounded-lg px-3 py-1 text-xs text-neutral-400 underline hover:text-neutral-50">Detalhes da equipe</Link>}
         </div>
       )}
 

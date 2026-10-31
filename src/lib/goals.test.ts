@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUSINESS_DAYS, activeDaysOf, computeStreak, goalForWeekday, validateGoal } from './goals'
+import { BUSINESS_DAYS, activeDaysOf, computeStreak, goalForWeekday, validateGoal, weekdayOf } from './goals'
 
 const goal = (targetPoints: number, activeDays: ReadonlyArray<number>) => ({ targetPoints, activeDays })
 
@@ -22,6 +22,16 @@ describe('validateGoal', () => {
   })
   it('lista todos os erros de uma vez', () => {
     expect(validateGoal(goal(5, []))).toHaveLength(2)
+  })
+})
+
+describe('weekdayOf', () => {
+  it.each([
+    ['2026-11-01', 0],
+    ['2026-11-02', 1],
+    ['2026-10-31', 6],
+  ])('%s cai no dia %i da semana', (day, weekday) => {
+    expect(weekdayOf(day)).toBe(weekday)
   })
 })
 

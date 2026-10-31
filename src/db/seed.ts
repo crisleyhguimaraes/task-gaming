@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from './index'
 import { tenants, users } from './schema'
 import { auth } from '#/lib/auth'
+import { insertDefaultGoalAndRule } from '#/server/goals.core'
 import { insertDefaultPipeline } from '#/server/pipelines.core'
 
 const email = process.env.SEED_SUPERADMIN_EMAIL!
@@ -13,6 +14,7 @@ if (!tenant) {
   tenant = await db.transaction(async (tx) => {
     const [created] = await tx.insert(tenants).values({ name: tenantName, slug: 'admin' }).returning()
     await insertDefaultPipeline(tx, created!.id)
+    await insertDefaultGoalAndRule(tx, created!.id)
     return created!
   })
   console.log('tenant criado:', tenant.name)

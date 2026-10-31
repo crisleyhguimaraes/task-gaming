@@ -4,14 +4,17 @@ import { db } from '#/db'
 import type { Priority } from '#/db/schema'
 import { challenges, opportunities, taskTimeLogs, tasks, teamMembers, teams, users } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
+import { NO_BOARD } from '#/lib/boards'
 import { recordAudit } from './audit.core'
+import { lockBoardForTask } from './boards.core'
 import { scoringAttempt, validAttempt } from './challenges.core'
 import { openBlockers } from './dependencies.core'
 import { notify } from './notifications.core'
 import type { AuthCtx } from './roles'
 import { canAccessTeam, canManage, canSee, fail, forbid, isAdmin, requireCan } from './roles'
 import { activeMembersByTeam, assertMember, inManagedTeams, inTeams, usersInScope } from './scope'
-import { scoreTask } from './scoring'
+import { effectiveRules, scoreTask } from './scoring'
+import { snapshotOfTeam } from './scoring-rules.core'
 import { inOpen, localDay, localDayOf, tenantSettings } from './stats'
 import { capFor, closeLogDuration, summarizeLogs } from './time'
 import type { Tx } from './tx'
@@ -21,14 +24,14 @@ export { canManage, canSee, fail, isAdmin }
 /** Fecha logs abertos que casem com `where`, aplicando o teto. Retorna os taskIds afetados. */
 async function closeOpenLogs(tx: Tx, where: SQL | undefined, now: Date) {
   const open = await tx
-    .select({ id: taskTimeLogs.id, taskId: taskTimeLogs.taskId, startedAt: taskTimeLogs.startedAt, est: tasks.estimatedSeconds })
+    .select({ id: taskTimeLogs.id, taskId: taskTimeLogs.taskId, startedAt: taskTimeLogs.startedAt, est: tasks.estimatedSeconds, snapshot: tasks.scoringSnapshot })
     .from(taskTimeLogs)
     .innerJoin(tasks, eq(tasks.id, taskTimeLogs.taskId))
     .where(and(isNull(taskTimeLogs.stoppedAt), where))
   for (const log of open) {
     await tx
       .update(taskTimeLogs)
-      .set({ stoppedAt: now, durationSeconds: closeLogDuration(log.startedAt, now, log.est) })
+      .set({ stoppedAt: now, durationSeconds: closeLogDuration(log.startedAt, now, log.est, effectiveRules(log.snapshot)) })
       .where(eq(taskTimeLogs.id, log.id))
   }
   return open.map((l) => l.taskId)
@@ -76,13 +79,15 @@ export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()
   return db.transaction(async (tx) => {
     // Antes de qualquer consulta que devolva dado da tarefa: fora do tenant ou da visibilidade, ela não existe.
     await lockMembership(tx, me, taskId)
-    await loadTask(tx, me, taskId)
+    const loaded = await loadTask(tx, me, taskId)
     const [blocker] = await openBlockers(tx, [taskId]).limit(1)
     if (blocker) fail(`Bloqueada: depende de "${blocker.title}"`)
     const pausedIds = await closeOpenLogs(tx, eq(taskTimeLogs.userId, me.userId), now)
     if (pausedIds.length) {
       await tx.update(tasks).set({ status: 'paused' }).where(and(inArray(tasks.id, pausedIds), eq(tasks.status, 'in_progress')))
     }
+    // A regra fica congelada no primeiro start. A linha está travada por loadTask, então ninguém inicia a tarefa entre a leitura e o UPDATE.
+    const scoringSnapshot = loaded.startedAt ? undefined : await snapshotOfTeam(tx, me.tenantId, loaded.teamId)
     // Lock atômico: só pega se ainda estiver livre ou for minha.
     const [task] = await tx
       .update(tasks)
@@ -90,6 +95,7 @@ export async function startTaskFor(me: AuthCtx, taskId: string, now = new Date()
         assignedToId: me.userId,
         status: 'in_progress',
         startedAt: sql`coalesce(${tasks.startedAt}, ${now.toISOString()}::timestamptz)`,
+        scoringSnapshot,
       })
       .where(
         and(
@@ -162,8 +168,9 @@ export async function finishTaskFor(me: AuthCtx, taskId: string, now = new Date(
     if (!canOperate(me, task)) forbid()
     await closeOpenLogs(tx, eq(taskTimeLogs.taskId, taskId), now)
     const logs = await tx.select().from(taskTimeLogs).where(eq(taskTimeLogs.taskId, taskId)).orderBy(asc(taskTimeLogs.startedAt))
-    const { movingSeconds, elapsedSeconds } = summarizeLogs(logs, task.estimatedSeconds, now)
-    const score = scoreTask({ basePoints: task.basePoints, estimatedSeconds: task.estimatedSeconds, movingSeconds, elapsedSeconds })
+    const rules = effectiveRules(task.scoringSnapshot)
+    const { movingSeconds, elapsedSeconds } = summarizeLogs(logs, task.estimatedSeconds, now, rules)
+    const score = scoreTask({ basePoints: task.basePoints, estimatedSeconds: task.estimatedSeconds, movingSeconds, elapsedSeconds }, rules)
     const scored = await rendersPoints(tx, task, me.userId, now)
     const finalPoints = scored ? score.finalPoints : 0
     const prevBest = task.challengeId ? await challengeBest(tx, task.challengeId, task.id) : null
@@ -374,8 +381,11 @@ export async function activeTaskFor(me: AuthCtx) {
     .limit(1)
   const task = rows[0]
   if (!task) return null
-  return { ...task, ...(await taskPlayerState(task.id, me.userId)), cap: capFor(task.estimatedSeconds) }
+  return { ...task, ...(await taskPlayerState(task.id, me.userId)), cap: capOfTask(task) }
 }
+
+/** O teto de abandono da tarefa, pela regra que ela guardou no primeiro start. */
+export const capOfTask = (task: Pick<Task, 'estimatedSeconds' | 'scoringSnapshot'>) => capFor(task.estimatedSeconds, effectiveRules(task.scoringSnapshot))
 
 /** Estado do player: acumulado fechado + bloco aberto (se meu). */
 export async function taskPlayerState(taskId: string, userId: string) {
@@ -395,6 +405,8 @@ export type NewTask = {
   teamId: string
   assignedToId: string | null
   opportunityId?: string
+  /** Na edição, omitido mantém o board atual; nulo tira a tarefa do board. */
+  boardId?: string | null
 }
 
 async function assertOpportunityOfTeam(tx: Tx, me: AuthCtx, opportunityId: string | undefined, teamId: string) {
@@ -423,6 +435,7 @@ export async function createTaskFor(me: AuthCtx, data: NewTask) {
     if (!team) fail('Equipe não encontrada')
     if (data.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: data.teamId })
     await assertOpportunityOfTeam(tx, me, data.opportunityId, data.teamId)
+    if (data.boardId) await lockBoardForTask(tx, me, data.boardId, data.teamId)
     const [task] = await tx
       .insert(tasks)
       .values({
@@ -430,6 +443,7 @@ export async function createTaskFor(me: AuthCtx, data: NewTask) {
         teamId: data.teamId,
         assignedToId: data.assignedToId,
         opportunityId: data.opportunityId ?? null,
+        boardId: data.boardId ?? null,
         createdById: me.userId,
         title: data.title,
         description: data.description || null,
@@ -441,7 +455,7 @@ export async function createTaskFor(me: AuthCtx, data: NewTask) {
       action: 'task.created',
       entityType: 'task',
       entityId: task!.id,
-      meta: { title: task!.title, teamId: task!.teamId, assignedToId: task!.assignedToId, opportunityId: task!.opportunityId },
+      meta: { title: task!.title, teamId: task!.teamId, assignedToId: task!.assignedToId, opportunityId: task!.opportunityId, boardId: task!.boardId },
     })
     await notifyAssignee(tx, me, task!)
     return task!
@@ -456,7 +470,7 @@ export type TaskEdit = Omit<NewTask, 'teamId'> & {
   scheduledEnd: string | null
 }
 
-const auditedTaskFields = ['title', 'description', 'basePoints', 'estimatedSeconds', 'priority', 'dueDate', 'scheduledStart', 'scheduledEnd', 'assignedToId'] as const
+const auditedTaskFields = ['title', 'description', 'basePoints', 'estimatedSeconds', 'priority', 'dueDate', 'scheduledStart', 'scheduledEnd', 'assignedToId', 'boardId'] as const
 
 export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
   await db.transaction(async (tx) => {
@@ -467,9 +481,11 @@ export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
     if (data.assignedToId) await assertMember(tx, { tenantId: me.tenantId, userId: data.assignedToId, teamId: task.teamId })
     if (task.status !== 'pending' && data.assignedToId !== task.assignedToId) fail('Só tarefas pendentes podem ser reatribuídas')
     if (data.scheduledStart && data.scheduledEnd && data.scheduledEnd < data.scheduledStart) fail('Fim do cronograma antes do início')
+    if (data.boardId && data.boardId !== task.boardId) await lockBoardForTask(tx, me, data.boardId, task.teamId)
     const [updated] = await tx
       .update(tasks)
       .set({
+        boardId: data.boardId,
         title: data.title,
         description: data.description || null,
         basePoints: data.basePoints,
@@ -488,14 +504,18 @@ export async function updateTaskFor(me: AuthCtx, data: TaskEdit) {
   })
 }
 
-export type TaskListFilters = { teamId?: string; assigneeId?: string; priority?: Priority; search?: string }
+/** `boardId` é o id do board ou `NO_BOARD` para as tarefas fora de qualquer board. */
+export type TaskListFilters = { teamId?: string; assigneeId?: string; priority?: Priority; search?: string; boardId?: string }
 
-/** Escopo de visibilidade compartilhado entre a lista do board e a exportação. */
+const boardFilter = (boardId?: string) => (boardId === NO_BOARD ? isNull(tasks.boardId) : boardId ? eq(tasks.boardId, boardId) : undefined)
+
+/** Escopo de visibilidade compartilhado entre a lista do board e a exportação. O board filtra, não amplia: tarefa de equipe alheia continua invisível. */
 export function taskListWhere(me: AuthCtx, filters: TaskListFilters) {
   return and(
     eq(tasks.tenantId, me.tenantId),
     inTeams(tasks.teamId, me, { only: filters.teamId }),
     isNull(tasks.challengeId),
+    boardFilter(filters.boardId),
     filters.assigneeId === 'pool' ? isNull(tasks.assignedToId) : filters.assigneeId ? eq(tasks.assignedToId, filters.assigneeId) : undefined,
     filters.priority ? eq(tasks.priority, filters.priority) : undefined,
     filters.search ? or(ilike(tasks.title, `%${filters.search}%`), ilike(tasks.description, `%${filters.search}%`)) : undefined,

@@ -29,16 +29,19 @@ import { Route as AppLeadsLeadIdRouteImport } from './routes/_app/leads/$leadId'
 import { Route as AppLeadsImportRouteImport } from './routes/_app/leads/import'
 import { Route as AppOpportunitiesOpportunityIdRouteImport } from './routes/_app/opportunities/$opportunityId'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app/settings/audit'
+import { Route as AppSettingsBoardsRouteImport } from './routes/_app/settings/boards'
 import { Route as AppSettingsPermissionsRouteImport } from './routes/_app/settings/permissions'
-import { Route as AppSettingsPipelineRouteImport } from './routes/_app/settings/pipeline'
 import { Route as AppSettingsTeamsRouteImport } from './routes/_app/settings/teams'
 import { Route as AppSettingsTenantRouteImport } from './routes/_app/settings/tenant'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks/$taskId'
 import { Route as AppTasksNewRouteImport } from './routes/_app/tasks/new'
+import { Route as AppTeamsTeamIdRouteImport } from './routes/_app/teams/$teamId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppAdminTenantsIndexRouteImport } from './routes/_app/admin/tenants/index'
 import { Route as AppAdminTenantsTenantIdRouteImport } from './routes/_app/admin/tenants/$tenantId'
+import { Route as AppSettingsPipelineIndexRouteImport } from './routes/_app/settings/pipeline/index'
+import { Route as AppSettingsPipelinePipelineIdRouteImport } from './routes/_app/settings/pipeline/$pipelineId'
 import { Route as AppTasksEditTaskIdRouteImport } from './routes/_app/tasks/edit/$taskId'
 
 const AppRoute = AppRouteImport.update({
@@ -142,14 +145,14 @@ const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
   path: '/settings/audit',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsBoardsRoute = AppSettingsBoardsRouteImport.update({
+  id: '/settings/boards',
+  path: '/settings/boards',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsPermissionsRoute = AppSettingsPermissionsRouteImport.update({
   id: '/settings/permissions',
   path: '/settings/permissions',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsPipelineRoute = AppSettingsPipelineRouteImport.update({
-  id: '/settings/pipeline',
-  path: '/settings/pipeline',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsTeamsRoute = AppSettingsTeamsRouteImport.update({
@@ -177,6 +180,11 @@ const AppTasksNewRoute = AppTasksNewRouteImport.update({
   path: '/tasks/new',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTeamsTeamIdRoute = AppTeamsTeamIdRouteImport.update({
+  id: '/teams/$teamId',
+  path: '/teams/$teamId',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -192,6 +200,18 @@ const AppAdminTenantsTenantIdRoute = AppAdminTenantsTenantIdRouteImport.update({
   path: '/admin/tenants/$tenantId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsPipelineIndexRoute =
+  AppSettingsPipelineIndexRouteImport.update({
+    id: '/settings/pipeline/',
+    path: '/settings/pipeline/',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsPipelinePipelineIdRoute =
+  AppSettingsPipelinePipelineIdRouteImport.update({
+    id: '/settings/pipeline/$pipelineId',
+    path: '/settings/pipeline/$pipelineId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppTasksEditTaskIdRoute = AppTasksEditTaskIdRouteImport.update({
   id: '/tasks/edit/$taskId',
   path: '/tasks/edit/$taskId',
@@ -216,19 +236,22 @@ export interface FileRoutesByFullPath {
   '/leads/import': typeof AppLeadsImportRoute
   '/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/boards': typeof AppSettingsBoardsRoute
   '/settings/permissions': typeof AppSettingsPermissionsRoute
-  '/settings/pipeline': typeof AppSettingsPipelineRoute
   '/settings/teams': typeof AppSettingsTeamsRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/tasks/new': typeof AppTasksNewRoute
+  '/teams/$teamId': typeof AppTeamsTeamIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/challenges/': typeof AppChallengesIndexRoute
   '/leads/': typeof AppLeadsIndexRoute
   '/admin/tenants/$tenantId': typeof AppAdminTenantsTenantIdRoute
+  '/settings/pipeline/$pipelineId': typeof AppSettingsPipelinePipelineIdRoute
   '/tasks/edit/$taskId': typeof AppTasksEditTaskIdRoute
   '/admin/tenants/': typeof AppAdminTenantsIndexRoute
+  '/settings/pipeline/': typeof AppSettingsPipelineIndexRoute
 }
 export interface FileRoutesByTo {
   '/change-password': typeof ChangePasswordRoute
@@ -248,19 +271,22 @@ export interface FileRoutesByTo {
   '/leads/import': typeof AppLeadsImportRoute
   '/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
   '/settings/audit': typeof AppSettingsAuditRoute
+  '/settings/boards': typeof AppSettingsBoardsRoute
   '/settings/permissions': typeof AppSettingsPermissionsRoute
-  '/settings/pipeline': typeof AppSettingsPipelineRoute
   '/settings/teams': typeof AppSettingsTeamsRoute
   '/settings/tenant': typeof AppSettingsTenantRoute
   '/settings/users': typeof AppSettingsUsersRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/tasks/new': typeof AppTasksNewRoute
+  '/teams/$teamId': typeof AppTeamsTeamIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/challenges': typeof AppChallengesIndexRoute
   '/leads': typeof AppLeadsIndexRoute
   '/admin/tenants/$tenantId': typeof AppAdminTenantsTenantIdRoute
+  '/settings/pipeline/$pipelineId': typeof AppSettingsPipelinePipelineIdRoute
   '/tasks/edit/$taskId': typeof AppTasksEditTaskIdRoute
   '/admin/tenants': typeof AppAdminTenantsIndexRoute
+  '/settings/pipeline': typeof AppSettingsPipelineIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -282,19 +308,22 @@ export interface FileRoutesById {
   '/_app/leads/import': typeof AppLeadsImportRoute
   '/_app/opportunities/$opportunityId': typeof AppOpportunitiesOpportunityIdRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
+  '/_app/settings/boards': typeof AppSettingsBoardsRoute
   '/_app/settings/permissions': typeof AppSettingsPermissionsRoute
-  '/_app/settings/pipeline': typeof AppSettingsPipelineRoute
   '/_app/settings/teams': typeof AppSettingsTeamsRoute
   '/_app/settings/tenant': typeof AppSettingsTenantRoute
   '/_app/settings/users': typeof AppSettingsUsersRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/tasks/new': typeof AppTasksNewRoute
+  '/_app/teams/$teamId': typeof AppTeamsTeamIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/challenges/': typeof AppChallengesIndexRoute
   '/_app/leads/': typeof AppLeadsIndexRoute
   '/_app/admin/tenants/$tenantId': typeof AppAdminTenantsTenantIdRoute
+  '/_app/settings/pipeline/$pipelineId': typeof AppSettingsPipelinePipelineIdRoute
   '/_app/tasks/edit/$taskId': typeof AppTasksEditTaskIdRoute
   '/_app/admin/tenants/': typeof AppAdminTenantsIndexRoute
+  '/_app/settings/pipeline/': typeof AppSettingsPipelineIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -316,19 +345,22 @@ export interface FileRouteTypes {
     | '/leads/import'
     | '/opportunities/$opportunityId'
     | '/settings/audit'
+    | '/settings/boards'
     | '/settings/permissions'
-    | '/settings/pipeline'
     | '/settings/teams'
     | '/settings/tenant'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/tasks/new'
+    | '/teams/$teamId'
     | '/api/auth/$'
     | '/challenges/'
     | '/leads/'
     | '/admin/tenants/$tenantId'
+    | '/settings/pipeline/$pipelineId'
     | '/tasks/edit/$taskId'
     | '/admin/tenants/'
+    | '/settings/pipeline/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/change-password'
@@ -348,19 +380,22 @@ export interface FileRouteTypes {
     | '/leads/import'
     | '/opportunities/$opportunityId'
     | '/settings/audit'
+    | '/settings/boards'
     | '/settings/permissions'
-    | '/settings/pipeline'
     | '/settings/teams'
     | '/settings/tenant'
     | '/settings/users'
     | '/tasks/$taskId'
     | '/tasks/new'
+    | '/teams/$teamId'
     | '/api/auth/$'
     | '/challenges'
     | '/leads'
     | '/admin/tenants/$tenantId'
+    | '/settings/pipeline/$pipelineId'
     | '/tasks/edit/$taskId'
     | '/admin/tenants'
+    | '/settings/pipeline'
   id:
     | '__root__'
     | '/_app'
@@ -381,19 +416,22 @@ export interface FileRouteTypes {
     | '/_app/leads/import'
     | '/_app/opportunities/$opportunityId'
     | '/_app/settings/audit'
+    | '/_app/settings/boards'
     | '/_app/settings/permissions'
-    | '/_app/settings/pipeline'
     | '/_app/settings/teams'
     | '/_app/settings/tenant'
     | '/_app/settings/users'
     | '/_app/tasks/$taskId'
     | '/_app/tasks/new'
+    | '/_app/teams/$teamId'
     | '/api/auth/$'
     | '/_app/challenges/'
     | '/_app/leads/'
     | '/_app/admin/tenants/$tenantId'
+    | '/_app/settings/pipeline/$pipelineId'
     | '/_app/tasks/edit/$taskId'
     | '/_app/admin/tenants/'
+    | '/_app/settings/pipeline/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -549,18 +587,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAuditRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/boards': {
+      id: '/_app/settings/boards'
+      path: '/settings/boards'
+      fullPath: '/settings/boards'
+      preLoaderRoute: typeof AppSettingsBoardsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/permissions': {
       id: '/_app/settings/permissions'
       path: '/settings/permissions'
       fullPath: '/settings/permissions'
       preLoaderRoute: typeof AppSettingsPermissionsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/pipeline': {
-      id: '/_app/settings/pipeline'
-      path: '/settings/pipeline'
-      fullPath: '/settings/pipeline'
-      preLoaderRoute: typeof AppSettingsPipelineRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/teams': {
@@ -598,6 +636,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTasksNewRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/teams/$teamId': {
+      id: '/_app/teams/$teamId'
+      path: '/teams/$teamId'
+      fullPath: '/teams/$teamId'
+      preLoaderRoute: typeof AppTeamsTeamIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -617,6 +662,20 @@ declare module '@tanstack/react-router' {
       path: '/admin/tenants/$tenantId'
       fullPath: '/admin/tenants/$tenantId'
       preLoaderRoute: typeof AppAdminTenantsTenantIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/pipeline/': {
+      id: '/_app/settings/pipeline/'
+      path: '/settings/pipeline'
+      fullPath: '/settings/pipeline/'
+      preLoaderRoute: typeof AppSettingsPipelineIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/pipeline/$pipelineId': {
+      id: '/_app/settings/pipeline/$pipelineId'
+      path: '/settings/pipeline/$pipelineId'
+      fullPath: '/settings/pipeline/$pipelineId'
+      preLoaderRoute: typeof AppSettingsPipelinePipelineIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/tasks/edit/$taskId': {
@@ -641,18 +700,21 @@ interface AppRouteChildren {
   AppLeadsImportRoute: typeof AppLeadsImportRoute
   AppOpportunitiesOpportunityIdRoute: typeof AppOpportunitiesOpportunityIdRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
+  AppSettingsBoardsRoute: typeof AppSettingsBoardsRoute
   AppSettingsPermissionsRoute: typeof AppSettingsPermissionsRoute
-  AppSettingsPipelineRoute: typeof AppSettingsPipelineRoute
   AppSettingsTeamsRoute: typeof AppSettingsTeamsRoute
   AppSettingsTenantRoute: typeof AppSettingsTenantRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRoute
   AppTasksTaskIdRoute: typeof AppTasksTaskIdRoute
   AppTasksNewRoute: typeof AppTasksNewRoute
+  AppTeamsTeamIdRoute: typeof AppTeamsTeamIdRoute
   AppChallengesIndexRoute: typeof AppChallengesIndexRoute
   AppLeadsIndexRoute: typeof AppLeadsIndexRoute
   AppAdminTenantsTenantIdRoute: typeof AppAdminTenantsTenantIdRoute
+  AppSettingsPipelinePipelineIdRoute: typeof AppSettingsPipelinePipelineIdRoute
   AppTasksEditTaskIdRoute: typeof AppTasksEditTaskIdRoute
   AppAdminTenantsIndexRoute: typeof AppAdminTenantsIndexRoute
+  AppSettingsPipelineIndexRoute: typeof AppSettingsPipelineIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -667,18 +729,21 @@ const AppRouteChildren: AppRouteChildren = {
   AppLeadsImportRoute: AppLeadsImportRoute,
   AppOpportunitiesOpportunityIdRoute: AppOpportunitiesOpportunityIdRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
+  AppSettingsBoardsRoute: AppSettingsBoardsRoute,
   AppSettingsPermissionsRoute: AppSettingsPermissionsRoute,
-  AppSettingsPipelineRoute: AppSettingsPipelineRoute,
   AppSettingsTeamsRoute: AppSettingsTeamsRoute,
   AppSettingsTenantRoute: AppSettingsTenantRoute,
   AppSettingsUsersRoute: AppSettingsUsersRoute,
   AppTasksTaskIdRoute: AppTasksTaskIdRoute,
   AppTasksNewRoute: AppTasksNewRoute,
+  AppTeamsTeamIdRoute: AppTeamsTeamIdRoute,
   AppChallengesIndexRoute: AppChallengesIndexRoute,
   AppLeadsIndexRoute: AppLeadsIndexRoute,
   AppAdminTenantsTenantIdRoute: AppAdminTenantsTenantIdRoute,
+  AppSettingsPipelinePipelineIdRoute: AppSettingsPipelinePipelineIdRoute,
   AppTasksEditTaskIdRoute: AppTasksEditTaskIdRoute,
   AppAdminTenantsIndexRoute: AppAdminTenantsIndexRoute,
+  AppSettingsPipelineIndexRoute: AppSettingsPipelineIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

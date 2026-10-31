@@ -12,6 +12,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -21,6 +22,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import type { Role, TeamRole } from '#/lib/access'
 import { teamRoles, userRoles } from '#/lib/access'
+import type { ScoringSnapshot } from '#/server/scoring'
 
 export const roleEnum = pgEnum('role', userRoles)
 export type { Role, TeamRole }
@@ -53,6 +55,9 @@ export const teams = pgTable(
       .notNull(),
     name: varchar('name', { length: 100 }).notNull(),
     description: varchar('description', { length: 300 }),
+    // NULL é "o padrão do tenant". Garantir que o item é do mesmo tenant fica no app: com FK composta, o SET NULL apagaria também o tenant_id.
+    goalId: uuid('goal_id').references(() => goals.id, { onDelete: 'set null' }),
+    scoringRuleId: uuid('scoring_rule_id').references(() => scoringRules.id, { onDelete: 'set null' }),
     nameKey: nameKey(),
     createdAt: ts('created_at').defaultNow().notNull(),
   },
@@ -60,6 +65,73 @@ export const teams = pgTable(
     index('teams_tenant_idx').on(t.tenantId),
     unique('teams_id_tenant_unique').on(t.id, t.tenantId),
     unique('teams_tenant_name_key_unique').on(t.tenantId, t.nameKey),
+  ],
+)
+
+// Dias da semana como `Date#getUTCDay` e `extract(dow)`: 0 = domingo … 6 = sábado.
+export const goals = pgTable(
+  'goals',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 80 }).notNull(),
+    targetPoints: integer('target_points').notNull(),
+    activeDays: smallint('active_days').array().notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    nameKey: nameKey(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+    updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique('goals_tenant_id_unique').on(t.tenantId, t.id),
+    unique('goals_tenant_name_key_unique').on(t.tenantId, t.nameKey),
+    uniqueIndex('goals_one_default_idx').on(t.tenantId).where(sql`${t.isDefault}`),
+    check('goals_target_points_range', sql`${t.targetPoints} between 10 and 10000`),
+    check('goals_active_days_valid', sql`cardinality(${t.activeDays}) between 1 and 7 and ${t.activeDays} <@ array[0,1,2,3,4,5,6]::smallint[]`),
+  ],
+)
+
+const ruleColumn = (name: string) => integer(name).notNull()
+
+// Limiares em % inteiro (ver ScoringRules). Os CHECKs repetem validateRules: a defesa de quem escreve direto no banco.
+export const scoringRules = pgTable(
+  'scoring_rules',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tenantId: uuid('tenant_id')
+      .references(() => tenants.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: varchar('name', { length: 80 }).notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    validateBelowPct: ruleColumn('validate_below_pct'),
+    paceBelowPct: ruleColumn('pace_below_pct'),
+    paceBonusPct: ruleColumn('pace_bonus_pct'),
+    overtimeAbovePct: ruleColumn('overtime_above_pct'),
+    overtimeStepPct: ruleColumn('overtime_step_pct'),
+    overtimePenaltyPct: ruleColumn('overtime_penalty_pct'),
+    pauseBelowPct: ruleColumn('pause_below_pct'),
+    pausePenaltyPct: ruleColumn('pause_penalty_pct'),
+    floorPct: ruleColumn('floor_pct'),
+    capMultiplier: ruleColumn('cap_multiplier'),
+    capMinMinutes: ruleColumn('cap_min_minutes'),
+    nameKey: nameKey(),
+    createdAt: ts('created_at').defaultNow().notNull(),
+    updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique('scoring_rules_tenant_id_unique').on(t.tenantId, t.id),
+    unique('scoring_rules_tenant_name_key_unique').on(t.tenantId, t.nameKey),
+    uniqueIndex('scoring_rules_one_default_idx').on(t.tenantId).where(sql`${t.isDefault}`),
+    check(
+      'scoring_rules_percents_non_negative',
+      sql`${t.validateBelowPct} >= 0 and ${t.paceBelowPct} >= 0 and ${t.paceBonusPct} >= 0 and ${t.overtimeAbovePct} >= 0 and ${t.overtimeStepPct} >= 0 and ${t.overtimePenaltyPct} >= 0 and ${t.pauseBelowPct} >= 0 and ${t.pausePenaltyPct} >= 0 and ${t.floorPct} >= 0`,
+    ),
+    check('scoring_rules_thresholds_ascending', sql`${t.validateBelowPct} < ${t.paceBelowPct} and ${t.paceBelowPct} < ${t.overtimeAbovePct}`),
+    check('scoring_rules_floor_range', sql`${t.floorPct} between 1 and 100`),
+    check('scoring_rules_overtime_step_positive', sql`${t.overtimeStepPct} >= 1`),
+    check('scoring_rules_cap_positive', sql`${t.capMultiplier} >= 1 and ${t.capMinMinutes} >= 1`),
   ],
 )
 
@@ -266,6 +338,8 @@ export const tasks = pgTable(
     awardedPoints: integer('awarded_points'),
     needsValidation: boolean('needs_validation').notNull().default(false),
     manualFinish: boolean('manual_finish').notNull().default(false),
+    // A regra efetiva gravada no primeiro start. NULL: tarefa anterior às regras (ou ainda não iniciada), que vale a de fábrica.
+    scoringSnapshot: jsonb('scoring_snapshot').$type<ScoringSnapshot>(),
     createdAt: ts('created_at').defaultNow().notNull(),
     updatedAt: ts('updated_at').defaultNow().notNull().$onUpdate(() => new Date()),
   },

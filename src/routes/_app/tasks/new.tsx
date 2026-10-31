@@ -2,6 +2,7 @@ import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import * as React from 'react'
 import { z } from 'zod'
+import { listBoards } from '#/server/boards'
 import { getOpportunity } from '#/server/pipeline'
 import { createTask, getTaskFormOptions } from '#/server/tasks'
 
@@ -9,14 +10,18 @@ export const Route = createFileRoute('/_app/tasks/new')({
   validateSearch: z.object({ opportunityId: z.uuid().optional() }),
   loaderDeps: ({ search }) => ({ opportunityId: search.opportunityId }),
   loader: async ({ deps }) => {
-    const [options, detail] = await Promise.all([getTaskFormOptions(), deps.opportunityId ? getOpportunity({ data: { opportunityId: deps.opportunityId } }) : null])
-    return { ...options, opportunity: detail?.opportunity ?? null }
+    const [options, boards, detail] = await Promise.all([
+      getTaskFormOptions(),
+      listBoards(),
+      deps.opportunityId ? getOpportunity({ data: { opportunityId: deps.opportunityId } }) : null,
+    ])
+    return { ...options, boards: boards.filter((b) => !b.archivedAt), opportunity: detail?.opportunity ?? null }
   },
   component: NewTask,
 })
 
 function NewTask() {
-  const { teams, members, opportunity } = Route.useLoaderData()
+  const { teams, members, boards, opportunity } = Route.useLoaderData()
   const router = useRouter()
   const [teamId, setTeamId] = React.useState(opportunity?.teamId ?? teams[0]?.id ?? '')
   const [error, setError] = React.useState<string | null>(null)
@@ -35,6 +40,7 @@ function NewTask() {
           estimatedMinutes: Number(f.get('estimatedMinutes')),
           teamId,
           assignedToId: String(f.get('assignedToId')) || null,
+          boardId: String(f.get('boardId') ?? '') || null,
           opportunityId: opportunity?.id,
         },
       })
@@ -45,6 +51,8 @@ function NewTask() {
       setBusy(false)
     }
   }
+
+  const teamBoards = boards.filter((b) => b.teams.some((t) => t.id === teamId))
 
   if (teams.length === 0) {
     return <p className="card text-sm text-neutral-400">Você precisa estar em uma equipe (ou criar uma em Configurações) antes de criar tarefas.</p>
@@ -91,6 +99,15 @@ function NewTask() {
             </select>
           </div>
         </div>
+        {teamBoards.length > 0 && (
+          <div key={teamId} className="space-y-1">
+            <label htmlFor="boardId">Board (opcional)</label>
+            <select id="boardId" name="boardId" defaultValue="">
+              <option value="">Sem board</option>
+              {teamBoards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+        )}
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <button className="btn-primary w-full" disabled={busy}>Criar tarefa</button>
       </form>

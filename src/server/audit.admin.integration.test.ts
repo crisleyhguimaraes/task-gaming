@@ -101,7 +101,7 @@ describe('equipes', () => {
 
     expect((await eventsOf(f.tenant.id, team.id)).map((e) => [e.action, e.meta])).toEqual([
       ['team.created', { name: 'Temporária' }],
-      ['team.deleted', { name: 'Temporária' }],
+      ['team.deleted', { name: 'Temporária', unlinkedPipelines: 0, unlinkedBoards: 0 }],
     ])
   })
 

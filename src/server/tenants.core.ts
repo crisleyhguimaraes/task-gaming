@@ -3,6 +3,7 @@ import { db } from '#/db'
 import { teamMembers, teams, tenants, users } from '#/db/schema'
 import { auth } from '#/lib/auth'
 import { recordAudit } from './audit.core'
+import { insertDefaultGoalAndRule } from './goals.core'
 import type { AuthCtx } from './roles'
 import { insertDefaultPipeline } from './pipelines.core'
 
@@ -10,6 +11,7 @@ export async function createTenantFor(me: AuthCtx, data: { name: string; slug: s
   return db.transaction(async (tx) => {
     const [tenant] = await tx.insert(tenants).values(data).returning()
     await insertDefaultPipeline(tx, tenant!.id)
+    await insertDefaultGoalAndRule(tx, tenant!.id)
     await recordAudit(tx, me, {
       action: 'tenant.created',
       entityType: 'tenant',

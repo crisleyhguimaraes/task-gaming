@@ -25,15 +25,15 @@ export const Route = createFileRoute('/_app/pipeline')({
   loader: async ({ deps }) => {
     const to = new Date()
     const from = new Date(to.getTime() - deps.periodDays * DAY_MS)
-    const pipelines = await listPipelines()
-    const pipelineId = pipelines.find((p) => p.id === deps.pipelineId)?.id ?? pipelines.find((p) => !p.archivedAt)?.id
+    const pipelines = (await listPipelines()).filter((p) => !p.archivedAt)
+    const pipelineId = pipelines.find((p) => p.id === deps.pipelineId)?.id ?? pipelines[0]?.id
     if (!pipelineId) return null
     const [columns, filters, funnel] = await Promise.all([
       listPipeline({ data: { pipelineId, teamId: deps.teamId, ownerId: deps.ownerId } }),
       getPipelineFilters({ data: { teamId: deps.teamId } }),
       getFunnel({ data: { pipelineId, from: from.toISOString(), to: to.toISOString(), teamId: deps.teamId } }),
     ])
-    return { columns, filters, funnel }
+    return { pipelines, pipelineId, columns, filters, funnel }
   },
   component: PipelineOrEmpty,
 })
@@ -45,12 +45,14 @@ function PipelineOrEmpty() {
 }
 
 type PipelineData = {
+  pipelines: Array<{ id: string; name: string }>
+  pipelineId: string
   columns: Awaited<ReturnType<typeof listPipeline>>
   filters: Awaited<ReturnType<typeof getPipelineFilters>>
   funnel: Awaited<ReturnType<typeof getFunnel>>
 }
 
-function Pipeline({ columns, filters, funnel }: PipelineData) {
+function Pipeline({ pipelines, pipelineId, columns, filters, funnel }: PipelineData) {
   const search = Route.useSearch()
   const navigate = useNavigate({ from: '/pipeline' })
   const router = useRouter()
@@ -84,6 +86,11 @@ function Pipeline({ columns, filters, funnel }: PipelineData) {
       <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
 
       <div className="flex flex-wrap gap-2">
+        {pipelines.length > 1 && (
+          <select value={pipelineId} onChange={(e) => set({ pipelineId: e.target.value })} className="w-auto" aria-label="Pipeline">
+            {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
         {filters.teams.length > 0 && (
           <select value={search.teamId ?? ''} onChange={(e) => set({ teamId: e.target.value || undefined, ownerId: undefined })} className="w-auto" aria-label="Equipe">
             <option value="">Todas as equipes</option>

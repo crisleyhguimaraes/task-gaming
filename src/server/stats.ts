@@ -1,9 +1,10 @@
 import { and, asc, eq, getTableColumns, inArray, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '#/db'
 import { taskTimeLogs, tasks, teamMembers, teams, tenants, users } from '#/db/schema'
-import { MS_PER_DAY, computeStreak, dayKey } from '#/lib/goals'
+import { MS_PER_DAY, activeDaysOf, computeStreak, dayKey, goalForWeekday, weekdayOf } from '#/lib/goals'
+import { effectiveGoalsOf } from './goals.core'
 import type { AuthCtx } from './roles'
-import { canManage, isAdmin, isManager } from './roles'
+import { canManage, fail, isAdmin, isManager } from './roles'
 import { inManagedTeams, inMemberTeams, inTenantTeams } from './scope'
 
 const validPoints = and(eq(tasks.status, 'finished'), eq(tasks.needsValidation, false))
@@ -23,8 +24,9 @@ const periodFilter = (period: Period, tz: string) =>
       : undefined
 
 export async function tenantSettings(tenantId: string) {
-  const [t] = await db.select({ timezone: tenants.timezone, dailyGoalPoints: tenants.dailyGoalPoints }).from(tenants).where(eq(tenants.id, tenantId))
-  return t ?? { timezone: 'America/Sao_Paulo', dailyGoalPoints: 100 }
+  const [t] = await db.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, tenantId))
+  if (!t) fail('Tenant não encontrado')
+  return t
 }
 
 export async function todayProgress(userId: string, tz: string) {
@@ -81,14 +83,20 @@ export async function pointsByDay(userId: string, tz: string, days = 14) {
 /** 'YYYY-MM-DD' de agora no fuso do tenant. */
 export const todayKey = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
 
-export async function streak(userId: string, tz: string) {
+/** Dias ativos de quem está em várias equipes: a união dos de cada meta. */
+export async function streak(userId: string, tz: string, today = todayKey(tz)) {
   const rows = await db
     .selectDistinct({ day: sql<string>`${localDay(tasks.finishedAt, tz)}::text` })
     .from(tasks)
     .where(and(eq(tasks.assignedToId, userId), validPoints))
     .orderBy(sql`1 desc`)
     .limit(400)
-  return computeStreak(rows.map((r) => r.day), todayKey(tz))
+  return computeStreak(rows.map((r) => r.day), today, activeDaysOf(await effectiveGoalsOf(db, userId)))
+}
+
+/** Meta de um dia 'YYYY-MM-DD' do fuso do tenant: a maior entre as equipes com o dia ativo. `null` é dia livre. */
+export async function goalOfDay(userId: string, day: string) {
+  return goalForWeekday(await effectiveGoalsOf(db, userId), weekdayOf(day))
 }
 
 // --- Ranking / feed ---------------------------------------------------------

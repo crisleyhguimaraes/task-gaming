@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { authMiddleware } from './auth-context'
-import { archivePipelineFor, createPipelineFor, linkTeamToPipelineFor, listPipelinesFor, renamePipelineFor, restorePipelineFor, unlinkTeamFromPipelineFor } from './pipelines.core'
+import { archivePipelineFor, createPipelineFor, linkTeamToPipelineFor, listPipelinesWithTeamsFor, pipelinesOfTeamFor, renamePipelineFor, restorePipelineFor, unlinkTeamFromPipelineFor } from './pipelines.core'
 
 const pipelineName = z.string().trim().min(2).max(80)
 const pipelineId = z.object({ pipelineId: z.uuid() })
@@ -9,7 +9,12 @@ const teamLink = z.object({ pipelineId: z.uuid(), teamId: z.uuid() })
 
 export const listPipelines = createServerFn()
   .middleware([authMiddleware])
-  .handler(({ context: { auth: me } }) => listPipelinesFor(me))
+  .handler(({ context: { auth: me } }) => listPipelinesWithTeamsFor(me))
+
+export const getTeamPipelines = createServerFn()
+  .middleware([authMiddleware])
+  .validator(z.object({ teamId: z.uuid() }))
+  .handler(({ data, context: { auth: me } }) => pipelinesOfTeamFor(me, data.teamId))
 
 export const createPipeline = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])

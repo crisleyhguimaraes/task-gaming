@@ -34,6 +34,8 @@ export const activeDaysOf = (goals: ReadonlyArray<GoalRule>): Array<number> =>
 export const MS_PER_DAY = 86_400_000
 /** 'YYYY-MM-DD' (UTC) de uma data. */
 export const dayKey = (d: Date) => d.toISOString().slice(0, 10)
+/** Dia da semana (0 = domingo) de um 'YYYY-MM-DD'. */
+export const weekdayOf = (day: string) => new Date(`${day}T00:00:00Z`).getUTCDay()
 const dayBefore = (d: Date) => new Date(d.getTime() - MS_PER_DAY)
 
 /** Dias consecutivos com conclusão válida, terminando hoje ou no último dia ativo. Dia livre sem conclusão não quebra; com conclusão conta. */

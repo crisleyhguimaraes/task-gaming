@@ -1,13 +1,13 @@
 import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { db } from '#/db'
-import { opportunities, pipelineStages, pipelines, teamPipelines } from '#/db/schema'
+import { opportunities, pipelineStages, pipelines, teamPipelines, teams } from '#/db/schema'
 import { diffFields } from '#/lib/audit'
 import type { TeamPipelineLink } from '#/lib/pipeline'
 import { countOpportunities, effectivePipelineIds } from '#/lib/pipeline'
 import { recordAudit } from './audit.core'
 import { failOnDuplicate } from './duplicate'
 import type { AuthCtx } from './roles'
-import { fail, requireCan } from './roles'
+import { canAccessTeam, fail, requireCan } from './roles'
 import { teamIdsOf } from './scope'
 import { insertDefaultStages } from './stages.core'
 import { assertTeamInTenant } from './teams.core'
@@ -132,6 +132,37 @@ export async function listPipelinesFor(me: AuthCtx) {
     .select()
     .from(pipelines)
     .where(and(eq(pipelines.tenantId, me.tenantId), visibleIds ? inArray(pipelines.id, visibleIds) : undefined))
+    .orderBy(desc(pipelines.isDefault), asc(pipelines.name))
+}
+
+/** A lista de `listPipelinesFor` com as equipes vinculadas de cada pipeline (as sem vínculo usam o padrão e não aparecem nele). */
+export async function listPipelinesWithTeamsFor(me: AuthCtx) {
+  const visible = await listPipelinesFor(me)
+  if (!visible.length) return []
+  const links = await db
+    .select({ pipelineId: teamPipelines.pipelineId, id: teams.id, name: teams.name })
+    .from(teamPipelines)
+    .innerJoin(teams, eq(teams.id, teamPipelines.teamId))
+    .where(inArray(teamPipelines.pipelineId, visible.map((p) => p.id)))
+    .orderBy(asc(teams.name))
+  return visible.map(({ id, name, isDefault, archivedAt }) => ({
+    id,
+    name,
+    isDefault,
+    archivedAt,
+    teams: links.filter((l) => l.pipelineId === id).map((l) => ({ id: l.id, name: l.name })),
+  }))
+}
+
+/** Onde a equipe pode abrir oportunidade hoje: os vínculos ativos ou, sem eles, o padrão. */
+export async function pipelinesOfTeamFor(me: AuthCtx, teamId: string) {
+  await assertTeamInTenant(db, me.tenantId, teamId)
+  if (!canAccessTeam(me, teamId)) fail('Equipe não encontrada')
+  const ids = await effectivePipelineIdsOf(db, me.tenantId, [teamId])
+  return db
+    .select({ id: pipelines.id, name: pipelines.name })
+    .from(pipelines)
+    .where(and(eq(pipelines.tenantId, me.tenantId), inArray(pipelines.id, ids), isNull(pipelines.archivedAt)))
     .orderBy(desc(pipelines.isDefault), asc(pipelines.name))
 }
 

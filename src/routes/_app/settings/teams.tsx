@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
 import { Plus, Trash2 } from 'lucide-react'
 import * as React from 'react'
 import { createTeam, deleteTeam, listTeams } from '#/server/teams'
@@ -46,12 +46,13 @@ function Teams() {
       {error && <p className="text-sm text-rose-400">{error}</p>}
       <ul className="divide-y divide-neutral-800 rounded-2xl border border-neutral-800">
         {list.map((t) => (
-          <li key={t.id} className="flex items-center justify-between px-4 py-3">
-            <div>
-              <div className="font-medium">{t.name}</div>
+          <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <Link to="/teams/$teamId" params={{ teamId: t.id }} className="font-medium hover:underline">{t.name}</Link>
+              {t.description && <div className="truncate text-xs text-neutral-400">{t.description}</div>}
               <div className="text-xs text-neutral-500">{t.members} membros</div>
             </div>
-            <button onClick={() => confirm(`Excluir ${t.name}?`) && act(() => deleteTeam({ data: { teamId: t.id } }))} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-rose-400" title="Excluir">
+            <button onClick={() => confirm(`Excluir ${t.name}?`) && act(() => deleteTeam({ data: { teamId: t.id } }))} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-rose-400" title="Excluir" aria-label={`Excluir ${t.name}`}>
               <Trash2 className="h-4 w-4" />
             </button>
           </li>

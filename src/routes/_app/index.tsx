@@ -25,7 +25,7 @@ function Today() {
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const level = levelFor(d.totalPoints)
-  const goalPct = Math.min(100, Math.round((d.progress.points / d.settings.dailyGoalPoints) * 100))
+  const goalPct = d.goal ? Math.min(100, Math.round((d.progress.points / d.goal) * 100)) : 0
   const manager = isManager(me)
 
   async function pull(taskId: string) {
@@ -76,7 +76,7 @@ function Today() {
           </Ring>
           <div>
             <div className="text-sm text-neutral-400">Hoje</div>
-            <div className="text-lg font-semibold">{d.progress.points} / {d.settings.dailyGoalPoints} pts</div>
+            <div className="text-lg font-semibold">{d.goal ? `${d.progress.points} / ${d.goal} pts` : `${d.progress.points} pts · dia livre`}</div>
           </div>
         </div>
       </section>

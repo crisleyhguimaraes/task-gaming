@@ -4,6 +4,7 @@ import { teamMembers, teams, tenants, users } from '#/db/schema'
 import type { TeamRole } from '#/lib/access'
 import { auth } from '#/lib/auth'
 import { loadAuthCtx } from './auth-context.core'
+import { insertDefaultGoalAndRule } from './goals.core'
 import { insertDefaultPipeline } from './pipelines.core'
 import type { AuthCtx } from './roles'
 
@@ -66,6 +67,7 @@ export async function makeTenant(members = 2) {
   const suffix = Math.random().toString(36).slice(2, 8)
   const [tenant] = await db.insert(tenants).values({ name: `T ${suffix}`, slug: `t-${suffix}` }).returning()
   const pipeline = await insertDefaultPipeline(db, tenant!.id)
+  const { goal, scoringRule } = await insertDefaultGoalAndRule(db, tenant!.id)
   const team = await addTeam({ tenant: tenant! }, 'Time')
   const mk = (i: number, teamRole: TeamRole) => insertUser(tenant!.id, team, 'MEMBER', `u-${suffix}-${i}`, `User ${i}`, teamRole)
   const leader = await mk(0, 'LEADER')
@@ -74,6 +76,8 @@ export async function makeTenant(members = 2) {
   return {
     tenant: tenant!,
     pipeline,
+    goal,
+    scoringRule,
     team,
     leader,
     members: list,

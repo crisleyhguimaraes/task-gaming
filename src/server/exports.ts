@@ -6,7 +6,7 @@ import { taskFilterSchema } from './tasks'
 
 export const exportTasksCsv = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .validator(taskFilterSchema.pick({ teamId: true, assigneeId: true, priority: true, search: true }))
+  .validator(taskFilterSchema.pick({ teamId: true, assigneeId: true, priority: true, search: true, boardId: true }))
   .handler(({ data, context: { auth: me } }) => exportTasksCsvFor(me, data))
 
 export const exportAuditCsv = createServerFn({ method: 'POST' })

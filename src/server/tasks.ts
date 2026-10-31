@@ -3,12 +3,12 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '#/db'
 import { taskDependencies, tasks, teams, users } from '#/db/schema'
+import { NO_BOARD } from '#/lib/boards'
 import { authMiddleware } from './auth-context'
 import { canManage, canSee, fail, isAdmin } from './roles'
 import { teamsOfUser } from './team-members.core'
-import { activeTaskFor, boardMembersFor, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
-import { capFor } from './time'
-import { heroStats, poolOf, pointsByDay, streak, teamFeed, teamPageFor, tenantSettings, todayProgress, totalPoints } from './stats'
+import { activeTaskFor, boardMembersFor, capOfTask, cancelTaskFor, createTaskFor, finishTaskFor, finishTaskManuallyFor, pauseTaskFor, restoreTaskFor, returnToPoolFor, startTaskFor, taskFormOptionsFor, taskListWhere, taskPlayerState, updateTaskFor, validatePointsFor } from './tasks.core'
+import { goalOfDay, heroStats, poolOf, pointsByDay, streak, teamFeed, teamPageFor, tenantSettings, todayKey, todayProgress, totalPoints } from './stats'
 import { listChallengesFor } from './challenges.core'
 import { blockedSet, openBlockers } from './dependencies.core'
 
@@ -25,6 +25,7 @@ export const createTask = createServerFn({ method: 'POST' })
       teamId: z.uuid(),
       assignedToId: z.string().nullable(),
       opportunityId: z.uuid().optional(),
+      boardId: z.uuid().nullable().optional(),
     }),
   )
   .handler(({ data, context: { auth: me } }) => createTaskFor(me, data))
@@ -46,7 +47,7 @@ export const getTask = createServerFn()
       assigneeName: row.assigneeName,
       blockedBy,
       ...player,
-      cap: capFor(row.task.estimatedSeconds),
+      cap: capOfTask(row.task),
       isMine: row.task.assignedToId === me.userId,
       canManage: canManage(me, row.task),
     }
@@ -101,8 +102,8 @@ export const getTeam = createServerFn()
 export const getToday = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context: { auth: me } }) => {
-    const settings = await tenantSettings(me.tenantId)
-    const progress = await todayProgress(me.userId, settings.timezone)
+    const { timezone } = await tenantSettings(me.tenantId)
+    const progress = await todayProgress(me.userId, timezone)
     const active = await activeTaskFor(me)
     const queue = await db
       .select()
@@ -113,14 +114,14 @@ export const getToday = createServerFn()
     const [u] = await db.select({ createdAt: users.createdAt }).from(users).where(eq(users.id, me.userId))
     const hero = await heroStats(me.userId)
     return {
-      settings,
+      goal: await goalOfDay(me.userId, todayKey(timezone)),
       progress,
-      streak: await streak(me.userId, settings.timezone),
+      streak: await streak(me.userId, timezone),
       totalPoints: await totalPoints(me.userId),
       daysInCompany: u ? Math.floor((Date.now() - u.createdAt.getTime()) / 86_400_000) : 0,
       teams: await teamsOfUser(db, me.userId),
       hero: { ...hero, recordes: challenges.filter((c) => c.record?.holderId === me.userId).length },
-      pointsByDay: await pointsByDay(me.userId, settings.timezone),
+      pointsByDay: await pointsByDay(me.userId, timezone),
       teamNow: me.memberships.length ? (await teamFeed(me, me.memberships.map((m) => m.teamId))).activeNow : [],
       active,
       queue: queue.filter((t) => t.id !== active?.id),
@@ -142,6 +143,7 @@ export const taskFilterSchema = z.object({
   assigneeId: z.string().optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   search: z.string().optional(),
+  boardId: z.union([z.uuid(), z.literal(NO_BOARD)]).optional(),
   sort: z.enum(['title', 'priority', 'dueDate', 'basePoints', 'status']).default('status'),
 })
 export type TaskFilters = z.infer<typeof taskFilterSchema>

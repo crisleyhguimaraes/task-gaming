@@ -1,20 +1,16 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router'
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { Link, createFileRoute, useRouter } from '@tanstack/react-router'
+import { ArrowDown, ArrowLeft, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import * as React from 'react'
 import { appRoute } from '#/lib/app-route'
 import { calculateNewOrder } from '#/lib/order'
 import { can } from '#/server/roles'
-import { z } from 'zod'
 import { createStage, deleteStage, listStages, reorderStage, updateStage } from '#/server/pipeline'
 import { listPipelines } from '#/server/pipelines'
 
-export const Route = createFileRoute('/_app/settings/pipeline')({
-  validateSearch: z.object({ pipelineId: z.uuid().optional() }),
-  loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) => {
-    const pipelines = await listPipelines()
-    const pipelineId = pipelines.find((p) => p.id === deps.pipelineId)?.id ?? pipelines.find((p) => !p.archivedAt)?.id
-    return { pipelineId, stages: pipelineId ? await listStages({ data: { pipelineId } }) : [] }
+export const Route = createFileRoute('/_app/settings/pipeline/$pipelineId')({
+  loader: async ({ params }) => {
+    const [pipelines, stages] = await Promise.all([listPipelines(), listStages({ data: { pipelineId: params.pipelineId } })])
+    return { pipeline: pipelines.find((p) => p.id === params.pipelineId) ?? null, stages }
   },
   component: PipelineSettings,
 })
@@ -25,7 +21,7 @@ type Kind = Stage['kind']
 
 function PipelineSettings() {
   const { me } = appRoute.useRouteContext()
-  const { pipelineId, stages } = Route.useLoaderData()
+  const { pipeline, stages } = Route.useLoaderData()
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
 
@@ -48,13 +44,16 @@ function PipelineSettings() {
   }
 
   if (!can(me, 'pipeline.configure')) return <p className="card text-sm text-neutral-400">Só gestores gerais configuram o funil.</p>
-  if (!pipelineId) return <p className="card text-sm text-neutral-400">Nenhum pipeline disponível.</p>
+  if (!pipeline) return <p className="card text-sm text-neutral-400">Pipeline não encontrado.</p>
+  const pipelineId = pipeline.id
 
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-sm text-neutral-400">Configurações</p>
-        <h1 className="text-2xl font-bold tracking-tight">Etapas do pipeline</h1>
+        <Link to="/settings/pipeline" className="inline-flex items-center gap-1 text-sm text-neutral-400 hover:text-neutral-50">
+          <ArrowLeft className="h-4 w-4" /> Pipelines
+        </Link>
+        <h1 className="text-2xl font-bold tracking-tight">Etapas de {pipeline.name}</h1>
         <p className="mt-1 text-sm text-neutral-500">O funil precisa de ao menos uma etapa aberta, uma ganha e uma perdida. Etapas que já tiveram oportunidades não podem ser excluídas nem mudar de tipo.</p>
       </div>
 
@@ -101,14 +100,15 @@ function StageRow({ stage, isFirst, isLast, onMove, act }: { stage: Stage; isFir
         <KindSelect name="kind" defaultValue={stage.kind} disabled={stage.inUse} title={stage.inUse ? 'Etapa já usada: o tipo não muda' : undefined} />
         <ProbabilityInput name="probability" defaultValue={stage.probability} />
         <button className="btn-ghost px-3 py-2 text-xs">Salvar</button>
-        <button type="button" onClick={() => onMove(-1)} disabled={isFirst} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50 disabled:opacity-30" title="Subir"><ArrowUp className="h-4 w-4" /></button>
-        <button type="button" onClick={() => onMove(1)} disabled={isLast} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50 disabled:opacity-30" title="Descer"><ArrowDown className="h-4 w-4" /></button>
+        <button type="button" onClick={() => onMove(-1)} disabled={isFirst} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50 disabled:opacity-30" title="Subir" aria-label={`Subir ${stage.name}`}><ArrowUp className="h-4 w-4" /></button>
+        <button type="button" onClick={() => onMove(1)} disabled={isLast} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50 disabled:opacity-30" title="Descer" aria-label={`Descer ${stage.name}`}><ArrowDown className="h-4 w-4" /></button>
         <button
           type="button"
           disabled={stage.inUse}
           onClick={() => confirm(`Excluir a etapa ${stage.name}?`) && act(() => deleteStage({ data: { stageId: stage.id } }))}
           className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-900 hover:text-rose-400 disabled:opacity-30"
           title={stage.inUse ? 'Etapa já usada: não pode ser excluída' : 'Excluir'}
+          aria-label={`Excluir ${stage.name}`}
         >
           <Trash2 className="h-4 w-4" />
         </button>
