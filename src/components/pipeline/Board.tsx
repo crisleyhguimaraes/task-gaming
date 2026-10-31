@@ -52,11 +52,13 @@ export function PipelineBoard({ columns, onMove }: { columns: Array<StageColumn>
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActive(null)}>
-      <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-4 select-none">
-        {columns.map((stage) => <PipelineColumn key={stage.id} stage={stage} cards={items[stage.id] ?? []} />)}
+    <DndContext id="pipeline-board" sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActive(null)}>
+      <div className="flex h-[max(28rem,calc(100dvh-21rem))] gap-3 overflow-x-auto pb-2 select-none">
+        {columns.map((stage) => (
+          <PipelineColumn key={stage.id} stage={stage} cards={items[stage.id] ?? []} />
+        ))}
       </div>
-      <DragOverlay>{active ? <OpportunityCard card={active} overlay /> : null}</DragOverlay>
+      <DragOverlay>{active ? <OpportunityCard card={active} stageKind={columns.find((c) => c.id === active.stageId)?.kind ?? 'open'} overlay /> : null}</DragOverlay>
     </DndContext>
   )
 }
