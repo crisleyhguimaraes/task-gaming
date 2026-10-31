@@ -10,13 +10,13 @@ export type ChallengeItem = Awaited<ReturnType<typeof listChallengesFor>>[number
 export function ChallengeCard({ c }: { c: ChallengeItem }) {
   const sharing = sharingLabel(c)
   return (
-    <Link to="/challenges/$challengeId" params={{ challengeId: c.id }} className="card flex items-center gap-3 hover:bg-neutral-800/60">
+    <Link to="/challenges/$challengeId" params={{ challengeId: c.id }} className="card flex items-center gap-3 hover:border-neutral-700">
       <span className="tile-gold h-10 w-10"><Trophy className="h-5 w-5" /></span>
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{c.title}</div>
         <div className="truncate text-xs text-neutral-400">{c.teamName} · meta {fmtClock(c.estimatedSeconds)} · {c.basePoints} pts</div>
         {sharing && (
-          <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-800/40 bg-sky-950/30 px-2 py-0.5 text-[11px] font-medium text-sky-300">
+          <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-brand-ring/30 bg-brand-soft px-2 py-0.5 text-[11px] font-medium text-brand-ink">
             <Users className="h-3 w-3" /> {sharing}
           </span>
         )}
