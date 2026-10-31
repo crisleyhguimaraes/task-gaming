@@ -1,10 +1,17 @@
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
+import { CalendarRange, Funnel, User, UsersRound } from 'lucide-react'
 import * as React from 'react'
 import { z } from 'zod'
+import { FilterSelect } from '#/components/FilterSelect'
+import { PageHeader } from '#/components/PageHeader'
 import { PipelineBoard } from '#/components/pipeline/Board'
 import type { MovePayload } from '#/components/pipeline/Board'
 import { FunnelPanel } from '#/components/pipeline/FunnelPanel'
 import { LostReasonModal } from '#/components/pipeline/LostReasonModal'
+import { PipelineKpis } from '#/components/pipeline/PipelineKpis'
+import { SearchField } from '#/components/SearchField'
+import { TopbarSlot } from '#/components/Topbar'
+import { matchesDeal } from '#/lib/deal-search'
 import { getFunnel, getPipelineFilters, listPipeline, moveOpportunity } from '#/server/pipeline'
 import { listPipelines } from '#/server/pipelines'
 
@@ -20,6 +27,7 @@ const pipelineSearch = z.object({
 })
 
 export const Route = createFileRoute('/_app/pipeline')({
+  staticData: { pageWidth: 'full' },
   validateSearch: pipelineSearch,
   loaderDeps: ({ search }) => search,
   loader: async ({ deps }) => {
@@ -58,6 +66,8 @@ function Pipeline({ pipelines, pipelineId, columns, filters, funnel }: PipelineD
   const router = useRouter()
   const [error, setError] = React.useState<string | null>(null)
   const [pendingLoss, setPendingLoss] = React.useState<MovePayload | null>(null)
+  const [query, setQuery] = React.useState('')
+  const visible = React.useMemo(() => columns.map((c) => ({ ...c, opportunities: c.opportunities.filter((o) => matchesDeal(o, query)) })), [columns, query])
   const set = (patch: Partial<typeof search>) => navigate({ search: (prev) => ({ ...prev, ...patch }) })
 
   async function apply(p: MovePayload, lostReason?: string) {
@@ -82,33 +92,64 @@ function Pipeline({ pipelines, pipelineId, columns, filters, funnel }: PipelineD
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
-
-      <div className="flex flex-wrap gap-2">
+    <div className="space-y-5">
+      <TopbarSlot>
+        <SearchField value={query} onChange={setQuery} placeholder="Buscar negócio ou lead…" />
+      </TopbarSlot>
+      <PageHeader title="Pipeline" subtitle={pipelines.find((p) => p.id === pipelineId)?.name} />
+      <PipelineKpis columns={columns} funnel={funnel} periodDays={search.periodDays} />
+      <div className="flex flex-wrap items-center gap-2">
         {pipelines.length > 1 && (
-          <select value={pipelineId} onChange={(e) => set({ pipelineId: e.target.value })} className="w-auto" aria-label="Pipeline">
-            {pipelines.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <FilterSelect label="Pipeline" icon={Funnel} value={pipelineId} onChange={(v) => set({ pipelineId: v })}>
+            {pipelines.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </FilterSelect>
         )}
         {filters.teams.length > 0 && (
-          <select value={search.teamId ?? ''} onChange={(e) => set({ teamId: e.target.value || undefined, ownerId: undefined })} className="w-auto" aria-label="Equipe">
+          <FilterSelect label="Equipe" icon={UsersRound} value={search.teamId ?? ''} onChange={(v) => set({ teamId: v || undefined, ownerId: undefined })}>
             <option value="">Todas as equipes</option>
-            {filters.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+            {filters.teams.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </FilterSelect>
         )}
-        <select value={search.ownerId ?? ''} onChange={(e) => set({ ownerId: e.target.value || undefined })} className="w-auto" aria-label="Dono">
+        <FilterSelect label="Dono" icon={User} value={search.ownerId ?? ''} onChange={(v) => set({ ownerId: v || undefined })}>
           <option value="">Todos os donos</option>
-          {filters.owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select>
-        <select value={search.periodDays} onChange={(e) => set({ periodDays: Number(e.target.value) })} className="w-auto" aria-label="Período do funil">
-          {PERIOD_OPTIONS.map((d) => <option key={d} value={d}>Funil: últimos {d} dias</option>)}
-        </select>
+          {filters.owners.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </FilterSelect>
+        <FilterSelect label="Período do funil" icon={CalendarRange} value={String(search.periodDays)} onChange={(v) => set({ periodDays: Number(v) })}>
+          {PERIOD_OPTIONS.map((d) => (
+            <option key={d} value={d}>
+              Últimos {d} dias
+            </option>
+          ))}
+        </FilterSelect>
+        {(search.teamId || search.ownerId || search.pipelineId || query) && (
+          <button
+            type="button"
+            className="btn-ghost px-3 py-2 text-xs"
+            onClick={() => {
+              setQuery('')
+              navigate({ search: { periodDays: search.periodDays } })
+            }}
+          >
+            Limpar filtros
+          </button>
+        )}
       </div>
-      {error && <p className="rounded-lg border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
+      {error && <p className="rounded-xl border border-rose-900/50 bg-rose-950/40 px-3 py-2 text-sm text-rose-400">{error}</p>}
 
-      <PipelineBoard columns={columns} onMove={onMove} />
-      <FunnelPanel funnel={funnel} columns={columns} periodDays={search.periodDays} />
+      <PipelineBoard columns={visible} onMove={onMove} />
+      <FunnelPanel funnel={funnel} periodDays={search.periodDays} />
 
       <LostReasonModal
         title={pendingLoss?.card.title ?? null}

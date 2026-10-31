@@ -1,9 +1,6 @@
-import { Coins, Hourglass, Target, Trophy } from 'lucide-react'
 import * as React from 'react'
-import { formatCents, formatRate } from '#/lib/pipeline'
+import { formatRate } from '#/lib/pipeline'
 import type { getFunnel } from '#/server/pipeline'
-import { StatTile } from '../StatTile'
-import type { StageColumn } from './Board'
 
 type Funnel = Awaited<ReturnType<typeof getFunnel>>
 
@@ -14,20 +11,9 @@ const LABEL_W = 120
 const VALUE_W = 120
 const BAR_MAX_W = W - LABEL_W - VALUE_W
 
-const formatDays = (days: number | null) => (days === null ? '—' : `${Math.round(days)} dias`)
-
-export function FunnelPanel({ funnel, columns, periodDays }: { funnel: Funnel; columns: Array<StageColumn>; periodDays: number }) {
-  const open = columns.filter((c) => c.kind === 'open')
-  const openAmount = open.reduce((sum, c) => sum + c.amountCents, 0)
-  const forecast = open.reduce((sum, c) => sum + c.weightedCents, 0)
+export function FunnelPanel({ funnel, periodDays }: { funnel: Funnel; periodDays: number }) {
   return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile icon={Target} tone="green" label="Forecast ponderado" value={formatCents(forecast)} />
-        <StatTile icon={Coins} tone="cyan" label="Pipeline aberto" value={formatCents(openAmount)} />
-        <StatTile icon={Trophy} tone="gold" label={`Taxa de ganho (${periodDays}d)`} value={formatRate(funnel.winRate)} />
-        <StatTile icon={Hourglass} tone="violet" label="Ciclo médio das ganhas" value={formatDays(funnel.averageCycleDays)} />
-      </div>
+    <section>
       <div className="card space-y-2">
         <h2 className="text-sm font-semibold text-neutral-300">
           Conversão entre etapas <span className="font-normal text-neutral-500">· {funnel.created} criadas nos últimos {periodDays} dias · {funnel.won} ganhas, {funnel.lost} perdidas</span>
