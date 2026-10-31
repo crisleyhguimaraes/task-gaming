@@ -146,7 +146,7 @@ const roundBtn = 'relative flex h-11 w-11 items-center justify-center rounded-fu
 
 /** Topo à direita: tema, sino de atenção e avatar com o menu do usuário. */
 function HeaderActions({ me, attention, onSignOut }: { me: Pick<AuthCtx, 'name' | 'role' | 'memberships'>; attention: { pool: number; validation: number }; onSignOut: () => void }) {
-  const [theme, setThemeState] = React.useState<Theme>('dark')
+  const [theme, setThemeState] = React.useState<Theme>('light')
   React.useEffect(() => setThemeState(getTheme()), [])
   const choose = (t: Theme) => {
     setTheme(t)

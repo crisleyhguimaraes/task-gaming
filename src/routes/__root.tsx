@@ -22,8 +22,8 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    // NOTE: o script de tema grava data-theme antes da hidratação, então o HTML do servidor nunca o traz.
-    <html lang="pt-BR" suppressHydrationWarning>
+    // NOTE: o servidor renderiza claro; para quem escolheu escuro o script de tema remove data-theme antes da hidratação.
+    <html lang="pt-BR" data-theme="light" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
